@@ -87,8 +87,8 @@ class DatasetInference(object):
         self._distributed = distributed
         self._data_filter_fn = data_filter_fn
         self._pub_detection = public_detection
-        self._track_conf = 0.7
-        self._track_len = 5
+        self._track_conf = cfg.INFERENCE.TRACK_SCORE_THRESH
+        self._track_len = cfg.INFERENCE.MIN_TRACK_LENGTH
         self._logger = logging.getLogger(__name__)
 
         self.results = dict()
@@ -182,6 +182,8 @@ class DatasetInference(object):
         metrics["infer/total_time_sec"] = float(inference_time)
         if inference_time > 0:
             metrics["infer/fps"] = float(total_frames) / float(inference_time)
+        metrics["infer/postprocess/track_score_thresh"] = float(self._track_conf)
+        metrics["infer/postprocess/min_track_length"] = float(self._track_len)
 
         return {
             "metrics": metrics,

@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import torch
 import torch.distributed as dist
@@ -32,6 +33,13 @@ parser.add_argument("--config-file", default="", metavar="FILE", help="path to c
 parser.add_argument("--train-dir", default="", help="training folder where training artifacts are dumped", type=str)
 parser.add_argument("--model-suffix", default="", help="model suffix to differentiate different runs", type=str)
 parser.add_argument("--local_rank", type=int, default=0)
+parser.add_argument("--run-info-file", default="", help="optional path to dump run metadata as json", type=str)
+parser.add_argument(
+    "--opts",
+    nargs=argparse.REMAINDER,
+    default=[],
+    help="modify config options using the command-line",
+)
 
 
 def train(cfg, train_dir, local_rank, distributed, logger, mlflow_logger=None):
@@ -124,6 +132,8 @@ def main():
     args = parser.parse_args()
 
     cfg.merge_from_file(args.config_file)
+    if args.opts:
+        cfg.merge_from_list(args.opts)
     cfg.freeze()
 
     train_dir, logger = setup_env_and_logger(args, cfg)
@@ -165,6 +175,20 @@ def main():
             mlflow_logger.log_artifact(run_id_file, artifact_path="metadata")
 
         train(cfg, train_dir, args.local_rank, args.distributed, logger, mlflow_logger=mlflow_logger)
+
+        run_info = {
+            "model_name": model_name,
+            "train_dir": train_dir,
+            "final_checkpoint": os.path.join(train_dir, "model_final.pth"),
+            "mlflow_run_id": mlflow_logger.run_id,
+        }
+        run_info_path = os.path.join(train_dir, "run_info.json")
+        with open(run_info_path, "w") as f:
+            json.dump(run_info, f, indent=2, sort_keys=True)
+        if args.run_info_file:
+            with open(args.run_info_file, "w") as f:
+                json.dump(run_info, f, indent=2, sort_keys=True)
+        mlflow_logger.log_artifact(run_info_path, artifact_path="metadata")
     except Exception:
         run_status = "FAILED"
         logger.error("Training failed:\n%s", traceback.format_exc())

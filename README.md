@@ -1,25 +1,4 @@
-# SiamMOT
 
-SiamMOT is a region-based Siamese Multi-Object Tracking network that detects and associates object instances simultaneously.
-
-
-![](readme/SiamMOT.png)
-
-> [**SiamMOT: Siamese Multi-Object Tracking**](https://www.amazon.science/publications/siammot-siamese-multi-object-tracking),            
-> Bing Shuai, Andrew Berneshawi, Xinyu Li, Davide Modolo, Joseph Tighe,        
-
-
-    @inproceedings{shuai2021siammot,
-      title={SiamMOT: Siamese Multi-Object Tracking},
-      author={Shuai, Bing and Berneshawi, Andrew and Li, Xinyu and Modolo, Davide and Tighe, Joseph},
-      booktitle={CVPR},
-      year={2021}
-    }
-    
-![](readme/ablation.gif)
-    
-## Abstract
-In this paper, we focus on improving online multi-object tracking (MOT). In particular, we introduce a region-based Siamese Multi-Object Tracking network, which we name SiamMOT. SiamMOT includes a motion model that estimates the instance’s movement between two frames such that detected instances are associated. To explore how the motion modelling affects its tracking capability, we present two variants of Siamese tracker, one that implicitly models motion and one that models it explicitly. We carry out extensive quantitative experiments on three different MOT datasets: MOT17, TAO-person and Caltech Roadside Pedestrians, showing the importance of motion modelling for MOT and the ability of SiamMOT to substantially outperform the state-of-the-art. Finally, SiamMOT also outperforms the winners of ACM MM’20 HiEve Grand Challenge on HiEve dataset. Moreover, SiamMOT is efficient, and it runs at 17 FPS for 720P videos on a single modern GPU.
 
 
 ## Installation
@@ -87,23 +66,48 @@ MLFLOW:
 python3 tools/test_net.py ... --parent-run-id TRAIN_RUN_ID
 ~~~
 
+### Hyperparameter Tuning with Optuna
+The project includes `tools/tune_optuna.py` to optimize post-processing / inference tracking hyperparameters and, optionally,
+training hyperparameters in per-trial fine-tuning runs.
+
+Inference-only tuning (recommended after you already trained a custom model):
+~~~bash
+python3 tools/tune_optuna.py \
+  --project-root . \
+  --config-file configs/dla/DLA_34_FPN_EMM_MOT17.yaml \
+  --mode inference \
+  --model-file PATH_TO_MODEL_FILE \
+  --output-dir PATH_TO_TUNING_OUTPUT \
+  --study-name my_study \
+  --test-dataset MY_DATASET_KEY \
+  --dataset-split val \
+  --metric-name infer/mot/idf1 \
+  --n-trials 30
+~~~
+
+Per-trial fine-tuning + tuning:
+~~~bash
+python3 tools/tune_optuna.py \
+  --project-root . \
+  --config-file configs/dla/DLA_34_FPN_EMM_MOT17.yaml \
+  --mode finetune \
+  --train-dir PATH_TO_TRAIN_ROOT \
+  --output-dir PATH_TO_TUNING_OUTPUT \
+  --study-name my_study \
+  --test-dataset MY_DATASET_KEY \
+  --dataset-split val \
+  --metric-name infer/mot/idf1 \
+  --n-trials 20 \
+  --max-iter 5000
+~~~
+
+Both `tools/train_net.py` and `tools/test_net.py` now support config overrides through:
+~~~bash
+--opts KEY1 VALUE1 KEY2 VALUE2 ...
+~~~
+This is used by Optuna to evaluate each trial configuration.
+
 **Note:** If you get an error `ModuleNotFoundError: No module named 'siammot'` when running in the git root then make
 sure your PYTHONPATH includes the current directory, which you can add by running: `export PYTHONPATH=.:$PYTHONPATH`
 or you can explicitly add the project to the path by replacing the '.' in the export command with the absolute path to
 the git root.
-
-Multi-gpu testing is going to be supported later.
-
-## Version
-This is the preliminary version specifically for [Airbone Object Tracking (AOT) workshop](https://www.aicrowd.com/challenges/airborne-object-tracking-challenge).
-The current version only support the motion model being EMM.
-
-* [Update 06/02/2021] Refactor of configuration file
-* [Update 06/02/2021] Operator patching for amodal inference (needed in MOT17) and model release of MOT17 model
-* [Update 06/02/2021] Support inference based on provided public detection
-
-Stay tuned for more updates
-
-## License
-
-This project is licensed under the Apache-2.0 License.

@@ -3,6 +3,7 @@ Basic testing script for PyTorch
 Only support single-gpu now
 """
 import argparse
+import json
 import os
 import torch
 import traceback
@@ -32,6 +33,13 @@ parser.add_argument("--set", default="test", type=str)
 parser.add_argument("--gpu-id", default=0, type=int)
 parser.add_argument("--num-gpus", default=1, type=int)
 parser.add_argument("--parent-run-id", default="", type=str)
+parser.add_argument("--metrics-file", default="", type=str, help="optional path to dump metrics json")
+parser.add_argument(
+    "--opts",
+    nargs=argparse.REMAINDER,
+    default=[],
+    help="modify config options using the command-line",
+)
 
 
 def test(cfg, args, output_dir):
@@ -73,6 +81,8 @@ def test(cfg, args, output_dir):
 def main():
     args = parser.parse_args()
     cfg.merge_from_file(args.config_file)
+    if args.opts:
+        cfg.merge_from_list(args.opts)
     cfg.freeze()
 
     model_name = get_model_name(cfg)
@@ -111,7 +121,23 @@ def main():
         mlflow_logger.log_cfg_params(cfg)
 
         infer_results = test(cfg, args, output_dir)
-        mlflow_logger.log_metrics(infer_results.get("metrics", {}))
+        infer_metrics = infer_results.get("metrics", {})
+        mlflow_logger.log_metrics(infer_metrics)
+
+        metrics_payload = {
+            "metrics": infer_metrics,
+            "config_file": args.config_file,
+            "model_file": args.model_file,
+            "dataset": args.test_dataset,
+            "split": args.set,
+        }
+        infer_metrics_path = os.path.join(output_dir, "inference_metrics.json")
+        with open(infer_metrics_path, "w") as f:
+            json.dump(metrics_payload, f, indent=2, sort_keys=True)
+        if args.metrics_file:
+            with open(args.metrics_file, "w") as f:
+                json.dump(metrics_payload, f, indent=2, sort_keys=True)
+        mlflow_logger.log_artifact(infer_metrics_path, artifact_path="evaluation")
 
         summary_text = infer_results.get("mot_summary", "")
         if summary_text:

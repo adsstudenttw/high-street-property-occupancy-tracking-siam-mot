@@ -77,7 +77,7 @@ Install python requirements:
 pip3 install -r requirements.txt
 ```
 
-This installs `mlflow` as well, which is used for optional experiment tracking in both training and inference.
+This installs `mlflow` (for experiment tracking) and `optuna` (for hyperparameter tuning).
 
 **NOTE** If your install is taking a long time with a bunch of messages about "pip is looking at multiple versions"
 you can try adding `--use-deprecated=legacy-resolver` to the install command to use the old pip behavior, see:
