@@ -3,8 +3,8 @@ from yacs.config import CfgNode as CN
 from maskrcnn_benchmark.config import cfg
 
 # default detector config (Rewrite some of them in cfg)
-cfg.MODEL.META_ARCHITECTURE = 'GeneralizedRCNN'
-cfg.MODEL.BACKBONE.CONV_BODY = 'DLA-34-FPN'
+cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+cfg.MODEL.BACKBONE.CONV_BODY = "DLA-34-FPN"
 
 cfg.MODEL.RPN.USE_FPN = True
 cfg.MODEL.RPN.ANCHOR_STRIDE = (4, 8, 16, 32, 64)
@@ -48,7 +48,7 @@ cfg.MODEL.TRACK_HEAD.PAD_PIXELS = 512
 cfg.MODEL.TRACK_HEAD.SEARCH_REGION = 2.0
 # the minimal width / height of the search region
 cfg.MODEL.TRACK_HEAD.MINIMUM_SREACH_REGION = 0
-cfg.MODEL.TRACK_HEAD.MODEL = 'EMM'
+cfg.MODEL.TRACK_HEAD.MODEL = "EMM"
 
 # solver params
 cfg.MODEL.TRACK_HEAD.TRACK_THRESH = 0.4
@@ -73,7 +73,7 @@ cfg.MODEL.TRACK_HEAD.EMM = CN()
 cfg.MODEL.TRACK_HEAD.EMM.USE_CENTERNESS = True
 cfg.MODEL.TRACK_HEAD.EMM.POS_RATIO = 0.25
 cfg.MODEL.TRACK_HEAD.EMM.HN_RATIO = 0.25
-cfg.MODEL.TRACK_HEAD.EMM.TRACK_LOSS_WEIGHT = 1.
+cfg.MODEL.TRACK_HEAD.EMM.TRACK_LOSS_WEIGHT = 1.0
 # The ratio of center region to be positive positions
 cfg.MODEL.TRACK_HEAD.EMM.CLS_POS_REGION = 0.8
 # The lower this weight, it allows large motion offset during inference
@@ -89,21 +89,33 @@ cfg.VIDEO.TEMPORAL_WINDOW = 8
 cfg.VIDEO.TEMPORAL_SAMPLING = 4
 cfg.VIDEO.RANDOM_FRAMES_PER_CLIP = 2
 
-#Inference
+# Inference
 cfg.INFERENCE = CN()
 cfg.INFERENCE.USE_GIVEN_DETECTIONS = False
 # The length of clip per forward pass
 cfg.INFERENCE.CLIP_LEN = 1
 
-#Solver
+# Solver
 cfg.SOLVER.CHECKPOINT_PERIOD = 5000
 cfg.SOLVER.VIDEO_CLIPS_PER_BATCH = 16
 
-#Input
+# Input
 cfg.INPUT.MOTION_LIMIT = 0.1
 cfg.INPUT.COMPRESSION_LIMIT = 50
 cfg.INPUT.MOTION_BLUR_PROB = 0.5
 cfg.INPUT.AMODAL = False
 
 # Root directory of datasets
-cfg.DATASETS.ROOT_DIR = ''
+cfg.DATASETS.ROOT_DIR = ""
+
+# MLflow
+cfg.MLFLOW = CN()
+cfg.MLFLOW.ENABLED = True
+cfg.MLFLOW.TRACKING_URI = "http://127.0.0.1:5000"
+cfg.MLFLOW.EXPERIMENT_NAME = "siammot"
+cfg.MLFLOW.TRAIN_RUN_NAME = ""
+cfg.MLFLOW.INFERENCE_RUN_NAME = ""
+cfg.MLFLOW.LOG_EVERY_N_STEPS = 20
+cfg.MLFLOW.LOG_MODEL_CHECKPOINTS = True
+cfg.MLFLOW.LOG_CONFIG_ARTIFACT = True
+cfg.MLFLOW.LOG_INFERENCE_OUTPUTS = False

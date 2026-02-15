@@ -5,6 +5,7 @@ Only support single-gpu now
 import argparse
 import os
 import torch
+import traceback
 
 from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
 from maskrcnn_benchmark.utils.miscellaneous import mkdir
@@ -15,6 +16,7 @@ from siammot.engine.inferencer import DatasetInference
 from siammot.utils.get_model_name import get_model_name
 from siammot.data.adapters.utils.data_utils import load_dataset_anno, load_public_detection
 from siammot.data.adapters.handler.data_filtering import build_data_filter_fn
+from siammot.engine.mlflow_logger import MLflowLogger
 
 try:
     from apex import amp
@@ -29,6 +31,7 @@ parser.add_argument("--test-dataset", default="MOT17_DPM", type=str)
 parser.add_argument("--set", default="test", type=str)
 parser.add_argument("--gpu-id", default=0, type=int)
 parser.add_argument("--num-gpus", default=1, type=int)
+parser.add_argument("--parent-run-id", default="", type=str)
 
 
 def test(cfg, args, output_dir):
@@ -64,7 +67,7 @@ def test(cfg, args, output_dir):
         public_detection = load_public_detection(cfg, dataset_key)
 
     dataset_inference = DatasetInference(cfg, model, dataset, output_dir, data_filter_fn, public_detection)
-    dataset_inference()
+    return dataset_inference()
 
 
 def main():
@@ -77,7 +80,54 @@ def main():
     if not os.path.exists(output_dir):
         mkdir(output_dir)
 
-    test(cfg, args, output_dir)
+    mlflow_logger = MLflowLogger(cfg)
+    run_status = "FINISHED"
+
+    try:
+        mlflow_run_name = cfg.MLFLOW.INFERENCE_RUN_NAME if cfg.MLFLOW.INFERENCE_RUN_NAME else model_name
+        mlflow_tags = {
+            "stage": "inference",
+            "model_name": model_name,
+        }
+        if args.parent_run_id:
+            mlflow_tags["parent_train_run_id"] = args.parent_run_id
+
+        mlflow_logger.start_run(
+            experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+            run_name=mlflow_run_name,
+            tags=mlflow_tags,
+        )
+
+        mlflow_logger.log_params(
+            {
+                "config_file": args.config_file,
+                "output_dir": output_dir,
+                "model_file": args.model_file,
+                "test_dataset": args.test_dataset,
+                "split": args.set,
+                "use_given_detections": cfg.INFERENCE.USE_GIVEN_DETECTIONS,
+            }
+        )
+        mlflow_logger.log_cfg_params(cfg)
+
+        infer_results = test(cfg, args, output_dir)
+        mlflow_logger.log_metrics(infer_results.get("metrics", {}))
+
+        summary_text = infer_results.get("mot_summary", "")
+        if summary_text:
+            summary_path = os.path.join(output_dir, "mot_summary.txt")
+            with open(summary_path, "w") as f:
+                f.write(summary_text)
+            mlflow_logger.log_artifact(summary_path, artifact_path="evaluation")
+
+        if cfg.MLFLOW.LOG_INFERENCE_OUTPUTS:
+            mlflow_logger.log_artifacts(output_dir, artifact_path="inference_outputs")
+    except Exception:
+        run_status = "FAILED"
+        print("Inference failed:\n{}".format(traceback.format_exc()))
+        raise
+    finally:
+        mlflow_logger.end_run(status=run_status)
 
 
 if __name__ == "__main__":

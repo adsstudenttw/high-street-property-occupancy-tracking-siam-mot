@@ -110,9 +110,10 @@ class DatasetInference(object):
 
     def _eval_clear_mot(self):
 
-        motmetric, motstrsummary = eval_clears_mot(self._dataset, self.results,
-                                                   data_filter_fn=self._data_filter_fn)
-        return motmetric, motstrsummary
+        motmetric, motstrsummary, overall_metrics = eval_clears_mot(
+            self._dataset, self.results, data_filter_fn=self._data_filter_fn
+        )
+        return motmetric, motstrsummary, overall_metrics
 
     def _inference_on_video(self, sample):
         cache_path = os.path.join(self._output_dir, '{}.json'.format(sample.id))
@@ -154,9 +155,12 @@ class DatasetInference(object):
 
     def __call__(self):
         # todo: enable the inference in an efficient distributed framework
+        start_time = time.time()
+        total_frames = 0
         for (sample_id, sample) in tqdm(self._dataset):
             # clean up the memory
             self._model.reset_siammot_status()
+            total_frames += len(sample)
 
             sample_result = self._inference_on_video(sample)
 
@@ -164,9 +168,22 @@ class DatasetInference(object):
             self.results.update({sample.id: sample_result})
 
         self._logger.info("\n---------------- Start evaluating ----------------\n")
-        motmetric, motstrsummary = self._eval_clear_mot()
+        motmetric, motstrsummary, overall_metrics = self._eval_clear_mot()
         self._logger.info(motstrsummary)
 
         # ap, ap_str_summary = self._eval_det_ap()
         # self._logger.info(ap_str_summary)
         self._logger.info("\n---------------- Finish evaluating ----------------\n")
+
+        inference_time = time.time() - start_time
+        metrics = {}
+        metrics.update({f"infer/mot/{k}": v for k, v in overall_metrics.items()})
+        metrics["infer/total_frames"] = float(total_frames)
+        metrics["infer/total_time_sec"] = float(inference_time)
+        if inference_time > 0:
+            metrics["infer/fps"] = float(total_frames) / float(inference_time)
+
+        return {
+            "metrics": metrics,
+            "mot_summary": motstrsummary,
+        }

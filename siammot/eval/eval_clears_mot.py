@@ -67,6 +67,7 @@ def eval_clears_mot(samples, predicted_samples, data_filter_fn=None,
                'num_false_positives', 'num_misses', 'mota', 'motp', 'idf1']
 
     strsummary = ""
+    overall_metrics = {}
     if len(all_accumulators):
         summary = metrics_host.compute_many(
             all_accumulators,
@@ -80,5 +81,12 @@ def eval_clears_mot(samples, predicted_samples, data_filter_fn=None,
             formatters=metrics_host.formatters,
             namemap=mm.io.motchallenge_metric_names
         )
+        if "OVERALL" in summary.index:
+            for metric_name in metrics:
+                metric_value = summary.loc["OVERALL", metric_name]
+                try:
+                    overall_metrics[metric_name] = float(metric_value)
+                except (TypeError, ValueError):
+                    pass
 
-    return all_accumulators, "\n\n"+strsummary+"\n\n"
+    return all_accumulators, "\n\n"+strsummary+"\n\n", overall_metrics

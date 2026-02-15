@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 import time
 from apex import amp
 import torch.distributed as dist
@@ -21,7 +22,10 @@ def do_train(
         checkpoint_period,
         arguments,
         logger,
-        tensorboard_writer: TensorboardWriter = None
+        tensorboard_writer: TensorboardWriter = None,
+        mlflow_logger=None,
+        mlflow_log_every_n_steps=20,
+        mlflow_log_checkpoints=True,
 ):
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")
@@ -65,13 +69,26 @@ def do_train(
         optimizer.step()
 
         # write images / ground truth / evaluation metrics to tensorboard
-        tensorboard_writer(iteration, losses_reduced, loss_dict_reduced, images, targets)
+        if tensorboard_writer is not None:
+            tensorboard_writer(iteration, losses_reduced, loss_dict_reduced, images, targets)
 
         batch_time = time.time() - end
         end = time.time()
         meters.update(time=batch_time, data=data_time)
         eta_seconds = meters.time.global_avg * (max_iter - iteration)
         eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
+
+        if mlflow_logger is not None and mlflow_logger.can_log:
+            if iteration == 1 or iteration % max(1, mlflow_log_every_n_steps) == 0 or iteration == max_iter:
+                train_metrics = {
+                    "train/loss_total": losses_reduced.item(),
+                    "train/lr": optimizer.param_groups[0]["lr"],
+                    "train/batch_time_sec": batch_time,
+                    "train/data_time_sec": data_time,
+                }
+                for _loss_key, _val in loss_dict_reduced.items():
+                    train_metrics[f"train/{_loss_key}"] = _val.item()
+                mlflow_logger.log_metrics(train_metrics, step=iteration)
 
         if get_world_size() < 2 or dist.get_rank() == 0:
             if iteration % 20 == 0 or iteration == max_iter:
@@ -92,8 +109,14 @@ def do_train(
                 )
         if iteration % checkpoint_period == 0:
             checkpointer.save("model_{:07d}".format(iteration), **arguments)
+            if mlflow_logger is not None and mlflow_logger.can_log and mlflow_log_checkpoints:
+                checkpoint_path = os.path.join(checkpointer.save_dir, "model_{:07d}.pth".format(iteration))
+                mlflow_logger.log_artifact(checkpoint_path, artifact_path="checkpoints")
         if iteration == max_iter:
             checkpointer.save("model_final", **arguments)
+            if mlflow_logger is not None and mlflow_logger.can_log and mlflow_log_checkpoints:
+                checkpoint_path = os.path.join(checkpointer.save_dir, "model_final.pth")
+                mlflow_logger.log_artifact(checkpoint_path, artifact_path="checkpoints")
 
     total_training_time = time.time() - start_training_time
     total_time_str = str(datetime.timedelta(seconds=total_training_time))
@@ -102,3 +125,11 @@ def do_train(
             total_time_str, total_training_time / (max_iter)
         )
     )
+
+    if mlflow_logger is not None and mlflow_logger.can_log:
+        mlflow_logger.log_metrics(
+            {
+                "train/total_time_sec": total_training_time,
+                "train/sec_per_iter": total_training_time / max_iter,
+            }
+        )

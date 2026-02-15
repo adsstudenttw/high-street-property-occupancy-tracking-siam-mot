@@ -2,6 +2,7 @@ import argparse
 import os
 import torch
 import torch.distributed as dist
+import traceback
 
 from maskrcnn_benchmark.solver import make_lr_scheduler
 from maskrcnn_benchmark.solver import make_optimizer
@@ -17,6 +18,7 @@ from siammot.modelling.rcnn import build_siammot
 from siammot.engine.trainer import do_train
 from siammot.utils.get_model_name import get_model_name
 from siammot.engine.tensorboard_writer import TensorboardWriter
+from siammot.engine.mlflow_logger import MLflowLogger
 
 
 try:
@@ -32,7 +34,7 @@ parser.add_argument("--model-suffix", default="", help="model suffix to differen
 parser.add_argument("--local_rank", type=int, default=0)
 
 
-def train(cfg, train_dir, local_rank, distributed, logger):
+def train(cfg, train_dir, local_rank, distributed, logger, mlflow_logger=None):
 
     # build model
     model = build_siammot(cfg)
@@ -75,7 +77,10 @@ def train(cfg, train_dir, local_rank, distributed, logger):
 
     do_train(model, data_loader, optimizer, scheduler,
              checkpointer, device, checkpoint_period, arguments,
-             logger, tensorboard_writer
+             logger, tensorboard_writer,
+             mlflow_logger=mlflow_logger,
+             mlflow_log_every_n_steps=cfg.MLFLOW.LOG_EVERY_N_STEPS,
+             mlflow_log_checkpoints=cfg.MLFLOW.LOG_MODEL_CHECKPOINTS,
              )
 
     return model
@@ -122,8 +127,50 @@ def main():
     cfg.freeze()
 
     train_dir, logger = setup_env_and_logger(args, cfg)
+    model_name = os.path.basename(train_dir)
+    mlflow_logger = MLflowLogger(cfg, logger)
+    run_status = "FINISHED"
 
-    train(cfg, train_dir, args.local_rank, args.distributed, logger)
+    try:
+        mlflow_run_name = cfg.MLFLOW.TRAIN_RUN_NAME if cfg.MLFLOW.TRAIN_RUN_NAME else model_name
+        mlflow_tags = {
+            "stage": "train",
+            "model_name": model_name,
+        }
+        mlflow_logger.start_run(
+            experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+            run_name=mlflow_run_name,
+            tags=mlflow_tags,
+        )
+
+        mlflow_logger.log_params(
+            {
+                "config_file": args.config_file,
+                "train_dir": train_dir,
+                "model_suffix": args.model_suffix,
+                "distributed": args.distributed,
+                "dtype": cfg.DTYPE,
+                "num_train_datasets": len(cfg.DATASETS.TRAIN),
+            }
+        )
+        mlflow_logger.log_cfg_params(cfg)
+
+        if cfg.MLFLOW.LOG_CONFIG_ARTIFACT:
+            mlflow_logger.log_artifact(os.path.join(train_dir, "config.yml"), artifact_path="configs")
+
+        if mlflow_logger.run_id:
+            run_id_file = os.path.join(train_dir, "mlflow_run_id.txt")
+            with open(run_id_file, "w") as f:
+                f.write(mlflow_logger.run_id + "\n")
+            mlflow_logger.log_artifact(run_id_file, artifact_path="metadata")
+
+        train(cfg, train_dir, args.local_rank, args.distributed, logger, mlflow_logger=mlflow_logger)
+    except Exception:
+        run_status = "FAILED"
+        logger.error("Training failed:\n%s", traceback.format_exc())
+        raise
+    finally:
+        mlflow_logger.end_run(status=run_status)
 
 
 if __name__ == "__main__":

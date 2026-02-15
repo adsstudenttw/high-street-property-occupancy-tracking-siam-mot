@@ -62,6 +62,31 @@ Use the following command to test a model on a single-GPU machine:
 python3 tools/test_net.py --config-file configs/dla/DLA_34_FPN.yaml --output-dir PATH_TO_OUTPUT_DIR --model-file PATH_TO_MODEL_FILE --test-dataset DATASET_KEY --set val
 ~~~
 
+### MLflow Experiment Tracking
+MLflow support is built into both `tools/train_net.py` and `tools/test_net.py`.
+
+1. Set your tracking server URI if needed:
+~~~
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+~~~
+2. Enable MLflow in your config:
+~~~yaml
+MLFLOW:
+  ENABLED: True
+  TRACKING_URI: "http://127.0.0.1:5000"  # optional if env var is set
+  EXPERIMENT_NAME: "siammot"
+  TRAIN_RUN_NAME: ""
+  INFERENCE_RUN_NAME: ""
+  LOG_EVERY_N_STEPS: 20
+  LOG_MODEL_CHECKPOINTS: True
+  LOG_CONFIG_ARTIFACT: True
+  LOG_INFERENCE_OUTPUTS: False
+~~~
+3. (Optional) Link inference runs to a training run:
+~~~
+python3 tools/test_net.py ... --parent-run-id TRAIN_RUN_ID
+~~~
+
 **Note:** If you get an error `ModuleNotFoundError: No module named 'siammot'` when running in the git root then make
 sure your PYTHONPATH includes the current directory, which you can add by running: `export PYTHONPATH=.:$PYTHONPATH`
 or you can explicitly add the project to the path by replacing the '.' in the export command with the absolute path to
@@ -82,4 +107,3 @@ Stay tuned for more updates
 ## License
 
 This project is licensed under the Apache-2.0 License.
-
