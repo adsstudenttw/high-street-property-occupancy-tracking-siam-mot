@@ -1,6 +1,7 @@
 """
 Implements the Generalized R-CNN for SiamMOT
 """
+
 from torch import nn
 
 import siammot.operator_patch.run_operator_patch
@@ -48,11 +49,9 @@ class SiamMOT(nn.Module):
         proposals, proposal_losses = self.rpn(images, features, targets)
 
         if self.roi_heads:
-            x, result, roi_losses = self.roi_heads(features,
-                                                   proposals,
-                                                   targets,
-                                                   self.track_memory,
-                                                   given_detection)
+            x, result, roi_losses = self.roi_heads(
+                features, proposals, targets, self.track_memory, given_detection
+            )
             if not self.training:
                 self.flush_memory(cache=x)
 
@@ -68,6 +67,6 @@ class SiamMOT(nn.Module):
         return result
 
 
-def build_siammot(cfg):
+def build_siammot(cfg) -> SiamMOT:
     siammot = SiamMOT(cfg)
     return siammot

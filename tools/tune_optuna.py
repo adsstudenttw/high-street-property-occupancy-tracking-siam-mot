@@ -129,7 +129,7 @@ def _objective(trial: optuna.Trial, args):
         "--metrics-file",
         metrics_path,
     ]
-    test_cmd += ["--opts"] + _build_cfg_opts(inference_overrides)
+    test_cmd += ["--opts"] + _build_cfg_opts(inference_overrides) 
     _run_command(test_cmd, cwd=args.project_root)
 
     metrics = _load_metrics(metrics_path)

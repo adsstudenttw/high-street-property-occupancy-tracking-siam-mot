@@ -5,8 +5,10 @@ Only support single-gpu now
 import argparse
 import json
 import os
-import torch
 import traceback
+from typing import Any, Dict, Optional, cast
+
+import torch
 
 from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
 from maskrcnn_benchmark.utils.miscellaneous import mkdir
@@ -18,6 +20,7 @@ from siammot.utils.get_model_name import get_model_name
 from siammot.data.adapters.utils.data_utils import load_dataset_anno, load_public_detection
 from siammot.data.adapters.handler.data_filtering import build_data_filter_fn
 from siammot.engine.mlflow_logger import MLflowLogger
+from yacs.config import CfgNode
 
 try:
     from apex import amp
@@ -42,7 +45,11 @@ parser.add_argument(
 )
 
 
-def test(cfg, args, output_dir):
+def test(
+    cfg: CfgNode,
+    args: argparse.Namespace,
+    output_dir: str,
+) -> Dict[str, Any]:
 
     torch.cuda.empty_cache()
 
@@ -52,7 +59,9 @@ def test(cfg, args, output_dir):
     model.to(device)
 
     # Load model params
-    model_file = args.model_file
+    model_file: Optional[str] = args.model_file
+    if model_file is None:
+        raise KeyError("No checkpoint is found")
     checkpointer = DetectronCheckpointer(cfg, model, save_dir=model_file)
     if os.path.isfile(model_file):
         _ = checkpointer.load(model_file)
@@ -63,14 +72,14 @@ def test(cfg, args, output_dir):
 
     # Load testing dataset
     dataset_key = args.test_dataset
-    dataset, modality = load_dataset_anno(cfg, dataset_key, args.set)
+    dataset, _dataset_info = load_dataset_anno(cfg, dataset_key, args.set)
     dataset = sorted(dataset)
 
     # do inference on dataset
     data_filter_fn = build_data_filter_fn(dataset_key)
 
     # load public detection
-    public_detection = None
+    public_detection: Optional[Any] = None
     if cfg.INFERENCE.USE_GIVEN_DETECTIONS:
         public_detection = load_public_detection(cfg, dataset_key)
 
@@ -78,7 +87,7 @@ def test(cfg, args, output_dir):
     return dataset_inference()
 
 
-def main():
+def main() -> None:
     args = parser.parse_args()
     cfg.merge_from_file(args.config_file)
     if args.opts:
@@ -95,7 +104,7 @@ def main():
 
     try:
         mlflow_run_name = cfg.MLFLOW.INFERENCE_RUN_NAME if cfg.MLFLOW.INFERENCE_RUN_NAME else model_name
-        mlflow_tags = {
+        mlflow_tags: Dict[str, str] = {
             "stage": "inference",
             "model_name": model_name,
         }
@@ -121,7 +130,7 @@ def main():
         mlflow_logger.log_cfg_params(cfg)
 
         infer_results = test(cfg, args, output_dir)
-        infer_metrics = infer_results.get("metrics", {})
+        infer_metrics = cast(Dict[str, float], infer_results.get("metrics", {}))
         mlflow_logger.log_metrics(infer_metrics)
 
         metrics_payload = {
@@ -139,7 +148,7 @@ def main():
                 json.dump(metrics_payload, f, indent=2, sort_keys=True)
         mlflow_logger.log_artifact(infer_metrics_path, artifact_path="evaluation")
 
-        summary_text = infer_results.get("mot_summary", "")
+        summary_text = cast(str, infer_results.get("mot_summary", ""))
         if summary_text:
             summary_path = os.path.join(output_dir, "mot_summary.txt")
             with open(summary_path, "w") as f:

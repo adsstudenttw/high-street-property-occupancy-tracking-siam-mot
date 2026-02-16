@@ -2,31 +2,35 @@ import datetime
 import logging
 import os
 import time
+from typing import Any, Dict, Iterable, MutableMapping, Optional, Sequence, Tuple
+
 from apex import amp
+import torch
 import torch.distributed as dist
 
 from maskrcnn_benchmark.utils.metric_logger import MetricLogger
 from maskrcnn_benchmark.engine.trainer import reduce_loss_dict
 from maskrcnn_benchmark.utils.comm import get_world_size
 
+from .mlflow_logger import MLflowLogger
 from .tensorboard_writer import TensorboardWriter
 
 
 def do_train(
-        model,
-        data_loader,
-        optimizer,
-        scheduler,
-        checkpointer,
-        device,
-        checkpoint_period,
-        arguments,
-        logger,
-        tensorboard_writer: TensorboardWriter = None,
-        mlflow_logger=None,
-        mlflow_log_every_n_steps=20,
-        mlflow_log_checkpoints=True,
-):
+    model: torch.nn.Module,
+    data_loader: Iterable[Tuple[Any, Sequence[Any], Any]],
+    optimizer: torch.optim.Optimizer,
+    scheduler: Any,
+    checkpointer: Any,
+    device: torch.device,
+    checkpoint_period: int,
+    arguments: MutableMapping[str, Any],
+    logger: logging.Logger,
+    tensorboard_writer: Optional[TensorboardWriter] = None,
+    mlflow_logger: Optional[MLflowLogger] = None,
+    mlflow_log_every_n_steps: int = 20,
+    mlflow_log_checkpoints: bool = True,
+) -> None:
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")
     max_iter = len(data_loader)
@@ -52,7 +56,7 @@ def do_train(
         images = images.to(device)
         targets = [target.to(device) for target in targets]
 
-        result, loss_dict = model(images, targets)
+        _, loss_dict = model(images, targets)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -80,7 +84,7 @@ def do_train(
 
         if mlflow_logger is not None and mlflow_logger.can_log:
             if iteration == 1 or iteration % max(1, mlflow_log_every_n_steps) == 0 or iteration == max_iter:
-                train_metrics = {
+                train_metrics: Dict[str, float] = {
                     "train/loss_total": losses_reduced.item(),
                     "train/lr": optimizer.param_groups[0]["lr"],
                     "train/batch_time_sec": batch_time,

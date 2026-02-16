@@ -1,20 +1,32 @@
 import os
 import logging
 import time
-import torch
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
+
 import numpy as np
+import torch
 from tqdm import tqdm
 
 from gluoncv.torch.data.gluoncv_motion_dataset.dataset import DataSample
+from yacs.config import CfgNode
 
 from ..data.build_inference_data_loader import build_video_loader
 from ..data.adapters.augmentation.build_augmentation import build_siam_augmentation
 from ..utils.boxlists_to_entities import boxlists_to_entities, convert_given_detections_to_boxlist
 from ..eval.eval_clears_mot import eval_clears_mot
 
+MetricsMap = Dict[str, float]
+InferenceResult = Dict[str, Any]
+DatasetEntries = Sequence[Tuple[Any, DataSample]]
 
-def do_inference(cfg, model, sample: DataSample, transforms=None,
-                 given_detection: DataSample = None) -> DataSample:
+
+def do_inference(
+    cfg: CfgNode,
+    model: torch.nn.Module,
+    sample: DataSample,
+    transforms: Optional[Callable[..., Any]] = None,
+    given_detection: Optional[DataSample] = None,
+) -> DataSample:
     """
     Do inference on a specific video (sample)
     :param cfg: configuration file of the model
@@ -34,7 +46,7 @@ def do_inference(cfg, model, sample: DataSample, transforms=None,
     video_loader = build_video_loader(cfg, sample, transforms)
 
     sample_result = DataSample(sample.id, raw_info=None, metadata=sample.metadata)
-    network_time = 0
+    network_time = 0.0
     for (video_clip, frame_id, timestamps) in tqdm(video_loader):
         frame_id = frame_id.item()
         timestamps = torch.squeeze(timestamps, dim=0).tolist()
@@ -75,8 +87,16 @@ def do_inference(cfg, model, sample: DataSample, transforms=None,
 
 
 class DatasetInference(object):
-    def __init__(self, cfg, model, dataset, output_dir, data_filter_fn=None,
-                 public_detection=None, distributed=False):
+    def __init__(
+        self,
+        cfg: CfgNode,
+        model: torch.nn.Module,
+        dataset: DatasetEntries,
+        output_dir: str,
+        data_filter_fn: Optional[Callable[..., Any]] = None,
+        public_detection: Optional[Mapping[Any, DataSample]] = None,
+        distributed: bool = False,
+    ) -> None:
 
         self._cfg = cfg
 
@@ -91,9 +111,9 @@ class DatasetInference(object):
         self._track_len = cfg.INFERENCE.MIN_TRACK_LENGTH
         self._logger = logging.getLogger(__name__)
 
-        self.results = dict()
+        self.results: Dict[Any, DataSample] = {}
 
-    def _eval_det_ap(self):
+    def _eval_det_ap(self) -> Tuple[np.ndarray, str]:
         from ..eval.eval_det_ap import eval_det_ap
         iou_threshold = np.arange(0.5, 0.95, 0.05).tolist()
         ap_matrix = eval_det_ap(self._dataset, self.results,
@@ -108,14 +128,14 @@ class DatasetInference(object):
 
         return ap, ap_str_summary
 
-    def _eval_clear_mot(self):
+    def _eval_clear_mot(self) -> Tuple[Any, str, MetricsMap]:
 
         motmetric, motstrsummary, overall_metrics = eval_clears_mot(
             self._dataset, self.results, data_filter_fn=self._data_filter_fn
         )
         return motmetric, motstrsummary, overall_metrics
 
-    def _inference_on_video(self, sample):
+    def _inference_on_video(self, sample: DataSample) -> DataSample:
         cache_path = os.path.join(self._output_dir, '{}.json'.format(sample.id))
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
 
@@ -132,7 +152,7 @@ class DatasetInference(object):
             sample_result.dump(cache_path)
         return sample_result
 
-    def _postprocess_tracks(self, tracks: DataSample):
+    def _postprocess_tracks(self, tracks: DataSample) -> DataSample:
         """
         post_process the tracks to filter out short and non-confident tracks
         :param tracks: un-filtered tracks
@@ -153,11 +173,11 @@ class DatasetInference(object):
                     filter_tracks.add_entity(_entity)
         return filter_tracks
 
-    def __call__(self):
+    def __call__(self) -> InferenceResult:
         # todo: enable the inference in an efficient distributed framework
         start_time = time.time()
         total_frames = 0
-        for (sample_id, sample) in tqdm(self._dataset):
+        for (_, sample) in tqdm(self._dataset):
             # clean up the memory
             self._model.reset_siammot_status()
             total_frames += len(sample)
@@ -176,7 +196,7 @@ class DatasetInference(object):
         self._logger.info("\n---------------- Finish evaluating ----------------\n")
 
         inference_time = time.time() - start_time
-        metrics = {}
+        metrics: MetricsMap = {}
         metrics.update({f"infer/mot/{k}": v for k, v in overall_metrics.items()})
         metrics["infer/total_frames"] = float(total_frames)
         metrics["infer/total_time_sec"] = float(inference_time)
