@@ -1,0 +1,46 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# Environments
+.venv/
+venv/
+env/
+.python-version
+
+# Logs
+*.log
+
+# Training / inference artifacts
+mlruns/
+mlartifacts/
+runs/
+outputs/
+output/
+artifacts/
+demos/demo_vis/
+
+# Checkpoints / model exports
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Optuna / local DB files
+*.db
+*.sqlite
+*.sqlite3
+
+# HOTA debug exports
+hota_debug/
