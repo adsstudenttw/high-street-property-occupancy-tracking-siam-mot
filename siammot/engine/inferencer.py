@@ -14,6 +14,7 @@ from ..data.build_inference_data_loader import build_video_loader
 from ..data.adapters.augmentation.build_augmentation import build_siam_augmentation
 from ..utils.boxlists_to_entities import boxlists_to_entities, convert_given_detections_to_boxlist
 from ..eval.eval_clears_mot import eval_clears_mot
+from ..eval.eval_hota import eval_hota
 
 MetricsMap = Dict[str, float]
 InferenceResult = Dict[str, Any]
@@ -135,6 +136,27 @@ class DatasetInference(object):
         )
         return motmetric, motstrsummary, overall_metrics
 
+    def _eval_hota(self) -> Tuple[str, MetricsMap]:
+        hota_summary, overall_metrics = eval_hota(
+            self._dataset,
+            self.results,
+            data_filter_fn=self._data_filter_fn,
+            keep_debug_files=bool(self._cfg.INFERENCE.HOTA_KEEP_DEBUG_FILES),
+            debug_dir=str(self._cfg.INFERENCE.HOTA_DEBUG_DIR).strip() or None,
+        )
+        return hota_summary, overall_metrics
+
+    def _eval_mode(self) -> str:
+        eval_metric = str(self._cfg.INFERENCE.EVAL_METRIC).strip().lower()
+        valid_modes = {"clear", "hota", "both"}
+        if eval_metric not in valid_modes:
+            raise ValueError(
+                "Invalid INFERENCE.EVAL_METRIC '{}'. Supported values: clear, hota, both".format(
+                    self._cfg.INFERENCE.EVAL_METRIC
+                )
+            )
+        return eval_metric
+
     def _inference_on_video(self, sample: DataSample) -> DataSample:
         cache_path = os.path.join(self._output_dir, '{}.json'.format(sample.id))
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
@@ -188,8 +210,18 @@ class DatasetInference(object):
             self.results.update({sample.id: sample_result})
 
         self._logger.info("\n---------------- Start evaluating ----------------\n")
-        motmetric, motstrsummary, overall_metrics = self._eval_clear_mot()
-        self._logger.info(motstrsummary)
+        eval_mode = self._eval_mode()
+        clear_summary = ""
+        clear_metrics: MetricsMap = {}
+        hota_summary = ""
+        hota_metrics: MetricsMap = {}
+
+        if eval_mode in {"clear", "both"}:
+            _, clear_summary, clear_metrics = self._eval_clear_mot()
+            self._logger.info(clear_summary)
+        if eval_mode in {"hota", "both"}:
+            hota_summary, hota_metrics = self._eval_hota()
+            self._logger.info(hota_summary)
 
         # ap, ap_str_summary = self._eval_det_ap()
         # self._logger.info(ap_str_summary)
@@ -197,7 +229,10 @@ class DatasetInference(object):
 
         inference_time = time.time() - start_time
         metrics: MetricsMap = {}
-        metrics.update({f"infer/mot/{k}": v for k, v in overall_metrics.items()})
+        metrics.update({f"infer/mot/{k}": v for k, v in clear_metrics.items()})
+        metrics.update({f"infer/mot/hota/{k.lower()}": v for k, v in hota_metrics.items()})
+        if "HOTA" in hota_metrics:
+            metrics["infer/mot/hota"] = hota_metrics["HOTA"]
         metrics["infer/total_frames"] = float(total_frames)
         metrics["infer/total_time_sec"] = float(inference_time)
         if inference_time > 0:
@@ -205,7 +240,16 @@ class DatasetInference(object):
         metrics["infer/postprocess/track_score_thresh"] = float(self._track_conf)
         metrics["infer/postprocess/min_track_length"] = float(self._track_len)
 
+        summary_parts = []
+        if clear_summary.strip():
+            summary_parts.append("CLEAR MOT\n{}".format(clear_summary.strip()))
+        if hota_summary.strip():
+            summary_parts.append("HOTA\n{}".format(hota_summary.strip()))
+        eval_summary = "\n\n".join(summary_parts)
+
         return {
             "metrics": metrics,
-            "mot_summary": motstrsummary,
+            "eval_summary": eval_summary,
+            "mot_summary": clear_summary,
+            "hota_summary": hota_summary,
         }

@@ -41,6 +41,29 @@ Use the following command to test a model on a single-GPU machine:
 python3 tools/test_net.py --config-file configs/dla/DLA_34_FPN.yaml --output-dir PATH_TO_OUTPUT_DIR --model-file PATH_TO_MODEL_FILE --test-dataset DATASET_KEY --set val
 ~~~
 
+Evaluation metric can be selected at inference time:
+~~~bash
+python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC clear
+python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota
+python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC both
+~~~
+`hota` and `both` require TrackEval.
+
+Project-managed setup: vendor TrackEval into this repo:
+~~~bash
+git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+~~~
+The HOTA evaluator expects `third_party/TrackEval`.
+To update later:
+~~~bash
+git subtree pull --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+~~~
+Optional HOTA debug output retention:
+~~~bash
+python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota INFERENCE.HOTA_KEEP_DEBUG_FILES True
+python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota INFERENCE.HOTA_KEEP_DEBUG_FILES True INFERENCE.HOTA_DEBUG_DIR /tmp/siammot_hota_debug
+~~~
+
 ### MLflow Experiment Tracking
 MLflow support is built into both `tools/train_net.py` and `tools/test_net.py`.
 

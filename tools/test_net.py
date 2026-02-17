@@ -148,12 +148,28 @@ def main() -> None:
                 json.dump(metrics_payload, f, indent=2, sort_keys=True)
         mlflow_logger.log_artifact(infer_metrics_path, artifact_path="evaluation")
 
-        summary_text = cast(str, infer_results.get("mot_summary", ""))
+        summary_text = cast(str, infer_results.get("eval_summary", ""))
+        if not summary_text:
+            summary_text = cast(str, infer_results.get("mot_summary", ""))
         if summary_text:
-            summary_path = os.path.join(output_dir, "mot_summary.txt")
+            summary_path = os.path.join(output_dir, "eval_summary.txt")
             with open(summary_path, "w") as f:
                 f.write(summary_text)
             mlflow_logger.log_artifact(summary_path, artifact_path="evaluation")
+
+        mot_summary_text = cast(str, infer_results.get("mot_summary", ""))
+        if mot_summary_text:
+            mot_summary_path = os.path.join(output_dir, "mot_summary.txt")
+            with open(mot_summary_path, "w") as f:
+                f.write(mot_summary_text)
+            mlflow_logger.log_artifact(mot_summary_path, artifact_path="evaluation")
+
+        hota_summary_text = cast(str, infer_results.get("hota_summary", ""))
+        if hota_summary_text:
+            hota_summary_path = os.path.join(output_dir, "hota_summary.txt")
+            with open(hota_summary_path, "w") as f:
+                f.write(hota_summary_text)
+            mlflow_logger.log_artifact(hota_summary_path, artifact_path="evaluation")
 
         if cfg.MLFLOW.LOG_INFERENCE_OUTPUTS:
             mlflow_logger.log_artifacts(output_dir, artifact_path="inference_outputs")
