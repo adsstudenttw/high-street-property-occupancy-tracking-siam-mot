@@ -30,6 +30,29 @@ MOT_LABEL_MAP = {
 DET_OPTIONS = {"SDP", "FRCNN", "DPM"}
 
 
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    value_str = str(value).strip().lower()
+    if value_str in {"true", "1", "yes", "y", "on"}:
+        return True
+    if value_str in {"false", "0", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected (true/false).")
+
+
+def _parse_det_options(value):
+    if value is None:
+        return [""]
+    value_str = str(value).strip()
+    if not value_str:
+        return [""]
+    options = [item.strip() for item in value_str.split(",") if item.strip()]
+    return options if options else [""]
+
+
 def sample_from_mot_csv(csv_path, fps, sample=None, mot17=True, has_gt=False):
     if sample is None:
         id_ = Path(csv_path).stem
@@ -91,13 +114,9 @@ def sample_from_mot_csv(csv_path, fps, sample=None, mot17=True, has_gt=False):
 
 
 def main(args, description="Initial ingestion", det_options=None, mot17=True):
-    if mot17:
-        if det_options is not None and not all(x in DET_OPTIONS for x in det_options):
-            raise ValueError("Det options were {} but must be only: {}".format(det_options, DET_OPTIONS))
-        if det_options is None:
-            det_options = DET_OPTIONS
-    else:
-        print("Ingesting MOT15, ignoring det options {}".format(det_options))
+    if det_options is None:
+        det_options = [""]
+    if len(det_options) == 0:
         det_options = [""]
 
     dataset_path = args.dataset_path
@@ -112,12 +131,17 @@ def main(args, description="Initial ingestion", det_options=None, mot17=True):
 
     splits = {
         "train": os.path.join(out_dataset.data_root_path, "train"),
+        "val": os.path.join(out_dataset.data_root_path, "val"),
         "test": os.path.join(out_dataset.data_root_path, "test"), # No gt for MOT test
     }
 
     for det_option in det_options:
         for split_name, split_path in splits.items():
-            subdirs = glob.glob(os.path.join(split_path, "*" + det_option))
+            if not os.path.isdir(split_path):
+                continue
+
+            subdir_pattern = "*" if det_option == "" else "*" + det_option
+            subdirs = [d for d in glob.glob(os.path.join(split_path, subdir_pattern)) if os.path.isdir(d)]
             for i, subdir in enumerate(subdirs):
                 vid_id = os.path.basename(subdir)
                 vid_path = os.path.join(split_path, subdir)
@@ -176,6 +200,8 @@ def write_data_split(args, dataset):
         data_path = sample.data_relative_path
         if data_path.startswith("train"):
             return SplitNames.TRAIN
+        elif data_path.startswith("val"):
+            return SplitNames.VAL
         elif data_path.startswith("test"):
             return SplitNames.TEST
 
@@ -190,8 +216,28 @@ if __name__ == "__main__":
                         help="The path of dataset folder")
     parser.add_argument('--anno_name', default="anno.json",
                         help="The file name (with json) of ingested annotation file")
+    parser.add_argument(
+        '--mot17',
+        default=None,
+        type=_parse_bool,
+        help="Whether annotation rows follow MOT17 GT format (columns 8-9 are class and visibility). "
+             "If omitted, this is inferred from whether dataset_path contains 'MOT17'.",
+    )
+    parser.add_argument(
+        '--det-options',
+        default="",
+        type=str,
+        help="Optional comma-separated sequence suffix filters (e.g. DPM,FRCNN,SDP). "
+             "Leave empty to ingest all sequence folders (recommended for custom datasets).",
+    )
     args = parser.parse_args()
 
-    mot17 = "MOT17" in args.dataset_path
-    dataset = main(args, mot17=mot17)
+    if args.mot17 is None:
+        mot17 = "MOT17" in args.dataset_path
+    else:
+        mot17 = args.mot17
+    det_options = _parse_det_options(args.det_options)
+    if det_options != [""] and any(opt not in DET_OPTIONS for opt in det_options):
+        print("Using custom detector suffix filters: {}".format(det_options))
+    dataset = main(args, det_options=det_options, mot17=mot17)
     write_data_split(args, dataset)

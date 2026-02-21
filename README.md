@@ -5,40 +5,46 @@
 
 Please refer to [INSTALL.md](readme/INSTALL.md) for installation instructions.
 
-
-## Try SiamMOT demo
-For demo  purposes,  we provide two tracking models -- tracking person (visible part) or jointly tracking person and vehicles (bus, car, truck, motorcycle, etc).
-The person tracking model is trained on COCO-17 and CrowdHuman, while the latter model is trained on COCO-17 and VOC12.
-Currently, both models used in demos use EMM as its motion model, which performs best among different alternatives.
-
-In order to run the demo, use the following command:
+### Custom MOT Dataset (e.g. `datasets/hspot`)
+If you use a custom MOT Challenge-formatted dataset, ingest it first:
+~~~bash
+python3 siammot/data/ingestion/ingest_mot.py \
+  --dataset_path datasets/hspot \
+  --anno_name anno.json \
+  --mot17 true \
+  --det-options ""
 ~~~
-python3 demos/demo.py --demo-video  PATH_TO_DEMO_VIDE --track-class person --dump-video True
-~~~
-You can choose `person` or  `person_vehicel` for `track-class` such that person tracking or person/vehicle tracking model is used accordingly.
+Notes:
+1. `--det-options ""` ingests all sequence folders and does not require MOT17 suffixes (`DPM/FRCNN/SDP`).
+2. Use `--mot17 true` when GT rows include MOT17 class/visibility columns; otherwise use `--mot17 false`.
+3. The ingester expects split folders under the dataset path: `train`, `val`, and optionally `test`.
 
-The model would be automatically downloaded to `demos/models`,
-and the visualization of tracking outputs is automatically saved to `demos/demo_vis`
-
-![](readme/demo_volleyball.gif)
-
-![](readme/demo_person_vehicle.gif) 
-
-We also provide several pre-trained models in [model_zoos.md](readme/model_zoo.md) that can be used for demo. 
-
-## Dataset Evaluation and Training
-After [installation](readme/INSTALL.md), follow the instructions in [DATA.md](readme/DATA.md) to setup the datasets.
-As a sanity check, the models presented in [model_zoos.md](readme/model_zoo.md) can be used to for benchmark testing. 
-
-Use the following command to train a model on an 8-GPU machine:
-Before running training / inference, setup the [configuration file](configs) properly
-~~~
-python3 -m torch.distributed.launch --nproc_per_node=8 tools/train_net.py --config-file configs/dla/DLA_34_FPN.yaml --train-dir PATH_TO_TRAIN_DIR --model-suffix MODEL_SUFFIX 
+After ingestion, train using your registered dataset key (for this repo: `MOT_HSPOT`):
+~~~bash
+python3 tools/train_net.py \
+  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
+  --train-dir PATH_TO_TRAIN_DIR \
+  --opts DATASETS.ROOT_DIR datasets DATASETS.TRAIN "('MOT_HSPOT',)"
 ~~~
 
-Use the following command to test a model on a single-GPU machine:
+For HSPOT single-GPU fine-tuning and evaluation, use `configs/dla/DLA_34_FPN_EMM_HSPOT.yaml` as the baseline config.
+
+Single-GPU training command (HSPOT baseline):
+~~~bash
+python3 tools/train_net.py \
+  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
+  --train-dir PATH_TO_TRAIN_DIR \
+  --opts DATASETS.ROOT_DIR datasets DATASETS.TRAIN "('MOT_HSPOT',)"
 ~~~
-python3 tools/test_net.py --config-file configs/dla/DLA_34_FPN.yaml --output-dir PATH_TO_OUTPUT_DIR --model-file PATH_TO_MODEL_FILE --test-dataset DATASET_KEY --set val
+
+Single-GPU testing command:
+~~~bash
+python3 tools/test_net.py \
+  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
+  --output-dir PATH_TO_OUTPUT_DIR \
+  --model-file PATH_TO_MODEL_FILE \
+  --test-dataset MOT_HSPOT \
+  --set val
 ~~~
 
 Evaluation metric can be selected at inference time:
@@ -97,7 +103,7 @@ Inference-only tuning (recommended after you already trained a custom model):
 ~~~bash
 python3 tools/tune_optuna.py \
   --project-root . \
-  --config-file configs/dla/DLA_34_FPN_EMM_MOT17.yaml \
+  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
   --mode inference \
   --model-file PATH_TO_MODEL_FILE \
   --output-dir PATH_TO_TUNING_OUTPUT \
@@ -112,7 +118,7 @@ Per-trial fine-tuning + tuning:
 ~~~bash
 python3 tools/tune_optuna.py \
   --project-root . \
-  --config-file configs/dla/DLA_34_FPN_EMM_MOT17.yaml \
+  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
   --mode finetune \
   --train-dir PATH_TO_TRAIN_ROOT \
   --output-dir PATH_TO_TUNING_OUTPUT \

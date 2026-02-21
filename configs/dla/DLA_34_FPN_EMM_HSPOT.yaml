@@ -1,0 +1,52 @@
+INPUT:
+  MIN_SIZE_TRAIN: (768, 832, 896, 960) # reduce to (640, 704, 768, 832) if memory limits are reached
+  MAX_SIZE_TRAIN: 1920 # reduce to 1600 if memory limits are reached
+  MIN_SIZE_TEST: 960 # reduce to 800 if memory limits are reached
+  MAX_SIZE_TEST: 1920 # reduce to 1600 if memory limits are reached
+  PIXEL_MEAN: [0.485, 0.456, 0.406]
+  PIXEL_STD: [0.229, 0.224, 0.225]
+  TO_BGR255: False
+  # This augmentation is intended for datasets with small motion.
+  MOTION_LIMIT: 0.1
+  MOTION_BLUR_PROB: 1.0
+  COMPRESSION_LIMIT: 50
+  BRIGHTNESS: 0.1
+  CONTRAST: 0.1
+  SATURATION: 0.1
+  HUE: 0.1
+
+  # Keep amodal behavior aligned with MOT-style annotations.
+  AMODAL: True
+
+VIDEO:
+   TEMPORAL_WINDOW: 1000
+   TEMPORAL_SAMPLING: 1000
+   RANDOM_FRAMES_PER_CLIP: 2
+
+MODEL:
+
+  # The maximum number of frames that a track keeps dormant before it is killed
+  TRACK_HEAD:
+    MAX_DORMANT_FRAMES: 30
+
+SOLVER:
+  # Single-GPU baseline:
+  # original MOT17 config assumes 8 GPUs and global batch 16.
+  # Here we keep 2 clips/GPU and scale LR linearly.
+  BASE_LR: 0.0025
+  WEIGHT_DECAY: 0.0001
+  STEPS: (15000, 20000)
+  MAX_ITER: 25000
+  VIDEO_CLIPS_PER_BATCH: 2 #reduce to 1 if memory limits are reached
+
+DATASETS:
+  ROOT_DIR: "datasets"
+  TRAIN: ("MOT_HSPOT",)
+
+DATALOADER:
+  SIZE_DIVISIBILITY: 32
+  NUM_WORKERS: 4
+
+# Set this one to false for private detection evaluation.
+INFERENCE:
+  USE_GIVEN_DETECTIONS: False

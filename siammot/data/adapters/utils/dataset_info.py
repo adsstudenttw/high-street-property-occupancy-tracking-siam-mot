@@ -29,6 +29,11 @@ dataset_maps['MOT17'] = ['MOT17',
                          'splits.json',
                          'video']
 
+dataset_maps['MOT_HSPOT'] = ['hspot',
+                             'anno.json',
+                             'splits.json',
+                             'video']
+
 dataset_maps['AOT'] = ['airbone_object_tracking',
                        'anno.json',
                        'splits.json',
