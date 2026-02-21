@@ -112,6 +112,9 @@ cfg.INPUT.AMODAL = False
 
 # Root directory of datasets
 cfg.DATASETS.ROOT_DIR = ""
+# Split used by the training dataloader for video datasets.
+# Keep "train" for normal training; set to "val" for validation-split fine-tuning.
+cfg.DATASETS.TRAIN_SET = "train"
 
 # MLflow
 cfg.MLFLOW = CN()

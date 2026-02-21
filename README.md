@@ -1,12 +1,22 @@
-
-
-
 ## Installation
-
 Please refer to [INSTALL.md](readme/INSTALL.md) for installation instructions.
 
-### Custom MOT Dataset (e.g. `datasets/hspot`)
-If you use a custom MOT Challenge-formatted dataset, ingest it first:
+## End-to-End HSPOT Workflow
+This is a simple step-by-step flow for custom HSPOT data:
+1. Set up dataset and ingest annotations.
+2. Start MLflow (optional but recommended).
+3. Set up TrackEval (needed for HOTA).
+4. Fine-tune with `train_net.py`.
+5. Test with `test_net.py`.
+6. Run hyperparameter tuning with `tune_optuna.py`.
+
+### 1. Prepare Custom HSPOT Dataset
+Expected dataset folder layout:
+1. `datasets/hspot/train`
+2. `datasets/hspot/val`
+3. `datasets/hspot/test` (optional but needed for final test evaluation)
+
+Ingest the MOT-format annotations:
 ~~~bash
 python3 siammot/data/ingestion/ingest_mot.py \
   --dataset_path datasets/hspot \
@@ -14,129 +24,125 @@ python3 siammot/data/ingestion/ingest_mot.py \
   --mot17 true \
   --det-options ""
 ~~~
+
 Notes:
 1. `--det-options ""` ingests all sequence folders and does not require MOT17 suffixes (`DPM/FRCNN/SDP`).
-2. Use `--mot17 true` when GT rows include MOT17 class/visibility columns; otherwise use `--mot17 false`.
-3. The ingester expects split folders under the dataset path: `train`, `val`, and optionally `test`.
+2. Use `--mot17 true` when GT rows contain MOT17 class/visibility columns; otherwise use `--mot17 false`.
+3. This repository uses dataset key `MOT_HSPOT`.
 
-After ingestion, train using your registered dataset key (for this repo: `MOT_HSPOT`):
+### 2. Configure MLflow (Optional)
+MLflow is integrated in both `tools/train_net.py` and `tools/test_net.py`.
+
+Set tracking URI:
+~~~bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+~~~
+
+Start a local MLflow server (example):
+~~~bash
+mlflow server --host 127.0.0.1 --port 5000
+~~~
+
+If needed, you can disable logging per command with:
+~~~bash
+--opts MLFLOW.ENABLED False
+~~~
+
+### 3. Set Up TrackEval (Required for HOTA)
+HOTA evaluation requires vendored TrackEval under `third_party/TrackEval`.
+
+Add TrackEval to this repository:
+~~~bash
+git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+~~~
+
+Update later:
+~~~bash
+git subtree pull --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+~~~
+
+### 4. Fine-tune on HSPOT with `train_net.py`
+Single-GPU fine-tuning on the `train` split:
 ~~~bash
 python3 tools/train_net.py \
   --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
   --train-dir PATH_TO_TRAIN_DIR \
-  --opts DATASETS.ROOT_DIR datasets DATASETS.TRAIN "('MOT_HSPOT',)"
+  --opts \
+    DATASETS.ROOT_DIR datasets \
+    DATASETS.TRAIN "('MOT_HSPOT',)" \
+    DATASETS.TRAIN_SET train
 ~~~
 
-For HSPOT single-GPU fine-tuning and evaluation, use `configs/dla/DLA_34_FPN_EMM_HSPOT.yaml` as the baseline config.
+`train_net.py` does training only. It does not run validation/test evaluation.
 
-Single-GPU training command (HSPOT baseline):
-~~~bash
-python3 tools/train_net.py \
-  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --train-dir PATH_TO_TRAIN_DIR \
-  --opts DATASETS.ROOT_DIR datasets DATASETS.TRAIN "('MOT_HSPOT',)"
-~~~
-
-Single-GPU testing command:
+### 5. Evaluate with `test_net.py`
+Run validation evaluation:
 ~~~bash
 python3 tools/test_net.py \
   --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
   --output-dir PATH_TO_OUTPUT_DIR \
   --model-file PATH_TO_MODEL_FILE \
   --test-dataset MOT_HSPOT \
-  --set val
+  --set val \
+  --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC both
 ~~~
 
-Evaluation metric can be selected at inference time:
+Run final test evaluation:
 ~~~bash
-python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC clear
-python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota
-python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC both
-~~~
-`hota` and `both` require TrackEval.
-
-Project-managed setup: vendor TrackEval into this repo:
-~~~bash
-git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
-~~~
-The HOTA evaluator expects `third_party/TrackEval`.
-To update later:
-~~~bash
-git subtree pull --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
-~~~
-Optional HOTA debug output retention:
-~~~bash
-python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota INFERENCE.HOTA_KEEP_DEBUG_FILES True
-python3 tools/test_net.py ... --opts INFERENCE.EVAL_METRIC hota INFERENCE.HOTA_KEEP_DEBUG_FILES True INFERENCE.HOTA_DEBUG_DIR /tmp/siammot_hota_debug
-~~~
-
-### MLflow Experiment Tracking
-MLflow support is built into both `tools/train_net.py` and `tools/test_net.py`.
-
-1. Set your tracking server URI if needed:
-~~~
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
-~~~
-2. Enable MLflow in your config:
-~~~yaml
-MLFLOW:
-  ENABLED: True
-  TRACKING_URI: "http://127.0.0.1:5000"  # optional if env var is set
-  EXPERIMENT_NAME: "siammot"
-  TRAIN_RUN_NAME: ""
-  INFERENCE_RUN_NAME: ""
-  LOG_EVERY_N_STEPS: 20
-  LOG_MODEL_CHECKPOINTS: True
-  LOG_CONFIG_ARTIFACT: True
-  LOG_INFERENCE_OUTPUTS: False
-~~~
-3. (Optional) Link inference runs to a training run:
-~~~
-python3 tools/test_net.py ... --parent-run-id TRAIN_RUN_ID
-~~~
-
-### Hyperparameter Tuning with Optuna
-The project includes `tools/tune_optuna.py` to optimize post-processing / inference tracking hyperparameters and, optionally,
-training hyperparameters in per-trial fine-tuning runs.
-
-Inference-only tuning (recommended after you already trained a custom model):
-~~~bash
-python3 tools/tune_optuna.py \
-  --project-root . \
+python3 tools/test_net.py \
   --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --mode inference \
+  --output-dir PATH_TO_OUTPUT_DIR \
   --model-file PATH_TO_MODEL_FILE \
-  --output-dir PATH_TO_TUNING_OUTPUT \
-  --study-name my_study \
-  --test-dataset MY_DATASET_KEY \
-  --dataset-split val \
-  --metric-name infer/mot/idf1 \
-  --n-trials 30
+  --test-dataset MOT_HSPOT \
+  --set test \
+  --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC both
 ~~~
 
-Per-trial fine-tuning + tuning:
+`INFERENCE.EVAL_METRIC` options:
+1. `clear`
+2. `hota`
+3. `both`
+
+### 6. Hyperparameter Tuning (1 GPU) with Optuna
+`tools/tune_optuna.py` uses Bayesian optimization (`TPESampler`) with pruning (`MedianPruner`).
+Per trial, it fine-tunes with `train_net.py` and evaluates on `val` with `test_net.py`.
+After the study finishes, it runs one final `test` evaluation with the best trial checkpoint.
+
+Objective metric is selected from `--eval-metric`:
+1. `clear` optimizes `infer/mot/idf1`
+2. `hota` optimizes `infer/mot/hota`
+3. `both` optimizes `infer/mot/hota`
+
+Example:
 ~~~bash
 python3 tools/tune_optuna.py \
   --project-root . \
   --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --mode finetune \
-  --train-dir PATH_TO_TRAIN_ROOT \
-  --output-dir PATH_TO_TUNING_OUTPUT \
-  --study-name my_study \
-  --test-dataset MY_DATASET_KEY \
-  --dataset-split val \
-  --metric-name infer/mot/idf1 \
+  --base-model-file PATH_TO_BASE_CHECKPOINT \
+  --output-dir PATH_TO_HPO_OUTPUT \
+  --study-name hspot_val_hpo \
+  --dataset-key MOT_HSPOT \
+  --train-split val \
+  --val-split val \
+  --test-split test \
+  --eval-metric hota \
   --n-trials 20 \
-  --max-iter 5000
+  --max-iter 6000 \
+  --prune-checkpoints 1000,3000
 ~~~
 
-Both `tools/train_net.py` and `tools/test_net.py` now support config overrides through:
+Important outputs:
+1. `PATH_TO_HPO_OUTPUT/best_trial.json`
+2. `PATH_TO_HPO_OUTPUT/study_trials.json`
+3. `PATH_TO_HPO_OUTPUT/final_test_eval/final_test_metrics.json`
+
+## Notes
+Both `tools/train_net.py` and `tools/test_net.py` support config overrides:
 ~~~bash
 --opts KEY1 VALUE1 KEY2 VALUE2 ...
 ~~~
-This is used by Optuna to evaluate each trial configuration.
 
-**Note:** If you get an error `ModuleNotFoundError: No module named 'siammot'` when running in the git root then make
-sure your PYTHONPATH includes the current directory, which you can add by running: `export PYTHONPATH=.:$PYTHONPATH`
-or you can explicitly add the project to the path by replacing the '.' in the export command with the absolute path to
-the git root.
+If you get `ModuleNotFoundError: No module named 'siammot'`, set:
+~~~bash
+export PYTHONPATH=.:$PYTHONPATH
+~~~

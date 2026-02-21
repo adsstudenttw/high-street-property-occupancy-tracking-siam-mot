@@ -203,6 +203,7 @@ def main() -> None:
                 "distributed": args.distributed,
                 "dtype": cfg.DTYPE,
                 "num_train_datasets": len(cfg.DATASETS.TRAIN),
+                "train_split": str(getattr(cfg.DATASETS, "TRAIN_SET", "train")),
             }
         )
         mlflow_logger.log_cfg_params(cfg)

@@ -17,6 +17,14 @@ def build_dataset(cfg):
     """
 
     dataset_list = cfg.DATASETS.TRAIN
+    train_split = str(getattr(cfg.DATASETS, "TRAIN_SET", "train")).strip().lower()
+    valid_splits = {"train", "val", "test"}
+    if train_split not in valid_splits:
+        raise ValueError(
+            "DATASETS.TRAIN_SET must be one of {}, got '{}'".format(
+                sorted(valid_splits), train_split
+            )
+        )
     if not isinstance(dataset_list, (list, tuple)):
         raise RuntimeError(
             "dataset_list should be a list of strings, got {}".format(dataset_list)
@@ -24,7 +32,7 @@ def build_dataset(cfg):
 
     datasets = []
     for dataset_key in dataset_list:
-        dataset_anno, dataset_info = load_dataset_anno(cfg, dataset_key)
+        dataset_anno, dataset_info = load_dataset_anno(cfg, dataset_key, set=train_split)
         modality = dataset_info['modality']
         transforms = build_siam_augmentation(cfg, is_train=True, modality=modality)
         data_filter_fn = build_data_filter_fn(dataset_key, is_train=True)
