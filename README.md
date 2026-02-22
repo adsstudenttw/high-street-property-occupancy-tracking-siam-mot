@@ -1,148 +1,173 @@
 ## Installation
-Please refer to [INSTALL.md](readme/INSTALL.md) for installation instructions.
+Please refer to [INSTALL.md](readme/INSTALL.md) for background installation notes.
 
-## End-to-End HSPOT Workflow
-This is a simple step-by-step flow for custom HSPOT data:
-1. Set up dataset and ingest annotations.
-2. Start MLflow (optional but recommended).
-3. Set up TrackEval (needed for HOTA).
-4. Fine-tune with `train_net.py`.
-5. Test with `test_net.py`.
-6. Run hyperparameter tuning with `tune_optuna.py`.
+## SURF Research Cloud (Ubuntu 22.04) Step-by-Step
+This repository includes a Docker + `uv` + Makefile workflow for running on a SURF Research Cloud VM.
 
-### 1. Prepare Custom HSPOT Dataset
-Expected dataset folder layout:
+### 0. Prerequisites on the VM
+1. Ubuntu 22.04 VM with NVIDIA driver already installed.
+2. This repository cloned on the VM.
+3. Your MLflow tracking server already running on a separate VM.
+
+### 1. Install Docker + NVIDIA Container Toolkit
+Run once on the SURF VM:
+~~~bash
+make vm-bootstrap-docker
+~~~
+
+Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
+
+### 2. Verify GPU Access from Docker
+~~~bash
+make verify-docker-gpu
+~~~
+
+If this VM has no GPU (CPU-only smoke test), run:
+~~~bash
+make verify-docker-cpu
+~~~
+
+### 3. Build the Project Image (dependencies installed with `uv`)
+~~~bash
+make docker-build
+~~~
+
+The Docker image:
+1. Uses CUDA 11.8 + Ubuntu 22.04.
+2. Installs Python and dependencies via `uv`.
+3. Installs PyTorch/torchvision, project requirements, and Apex.
+
+### 4. Prepare and Ingest the HSPOT Dataset
+Expected layout:
 1. `datasets/hspot/train`
 2. `datasets/hspot/val`
-3. `datasets/hspot/test` (optional but needed for final test evaluation)
+3. `datasets/hspot/test`
 
-Ingest the MOT-format annotations:
+Run ingestion in Docker:
 ~~~bash
-python3 siammot/data/ingestion/ingest_mot.py \
-  --dataset_path datasets/hspot \
-  --anno_name anno.json \
-  --mot17 true \
-  --det-options ""
+make ingest DATASET_PATH=datasets/hspot ANNO_NAME=anno.json MOT17=true DET_OPTIONS=""
 ~~~
 
 Notes:
-1. `--det-options ""` ingests all sequence folders and does not require MOT17 suffixes (`DPM/FRCNN/SDP`).
-2. Use `--mot17 true` when GT rows contain MOT17 class/visibility columns; otherwise use `--mot17 false`.
-3. This repository uses dataset key `MOT_HSPOT`.
+1. `DET_OPTIONS=""` ingests all sequence folders and does not require MOT17 detector suffixes.
+2. Use `MOT17=false` if your GT does not include MOT17 class/visibility columns.
+3. This project uses dataset key `MOT_HSPOT`.
 
-### 2. Configure MLflow (Optional)
-MLflow is integrated in both `tools/train_net.py` and `tools/test_net.py`.
-
-Set tracking URI:
+CPU-only smoke test (no dataset required):
 ~~~bash
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+make smoke-cpu
+~~~
+This validates container startup and core CLI wiring without spending GPU hours.
+
+### 5. Configure MLflow Tracking URI
+Point jobs to your separate MLflow VM:
+~~~bash
+export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
 ~~~
 
-Start a local MLflow server (example):
-~~~bash
-mlflow server --host 127.0.0.1 --port 5000
-~~~
+All `make` targets pass this environment variable into the container.
 
-If needed, you can disable logging per command with:
+### 6. Add TrackEval (required for HOTA)
 ~~~bash
---opts MLFLOW.ENABLED False
-~~~
-
-### 3. Set Up TrackEval (Required for HOTA)
-HOTA evaluation requires vendored TrackEval under `third_party/TrackEval`.
-
-Add TrackEval to this repository:
-~~~bash
-git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+make trackeval-add
 ~~~
 
 Update later:
 ~~~bash
-git subtree pull --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
+make trackeval-update
 ~~~
 
-### 4. Fine-tune on HSPOT with `train_net.py`
-Single-GPU fine-tuning on the `train` split:
+### 7. Fine-tune
+Train on `train` split:
 ~~~bash
-python3 tools/train_net.py \
-  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --train-dir PATH_TO_TRAIN_DIR \
-  --opts \
-    DATASETS.ROOT_DIR datasets \
-    DATASETS.TRAIN "('MOT_HSPOT',)" \
-    DATASETS.TRAIN_SET train
+make train \
+  TRAIN_SPLIT=train
 ~~~
 
-`train_net.py` does training only. It does not run validation/test evaluation.
-
-### 5. Evaluate with `test_net.py`
-Run validation evaluation:
+Fine-tune on `val` split (if desired):
 ~~~bash
-python3 tools/test_net.py \
-  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --output-dir PATH_TO_OUTPUT_DIR \
-  --model-file PATH_TO_MODEL_FILE \
-  --test-dataset MOT_HSPOT \
-  --set val \
-  --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC both
+make train TRAIN_SPLIT=val
 ~~~
 
-Run final test evaluation:
+Run on CPU (debug/smoke only, much slower):
 ~~~bash
-python3 tools/test_net.py \
-  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --output-dir PATH_TO_OUTPUT_DIR \
-  --model-file PATH_TO_MODEL_FILE \
-  --test-dataset MOT_HSPOT \
-  --set test \
-  --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC both
+make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
 ~~~
 
-`INFERENCE.EVAL_METRIC` options:
-1. `clear`
-2. `hota`
-3. `both`
-
-### 6. Hyperparameter Tuning (1 GPU) with Optuna
-`tools/tune_optuna.py` uses Bayesian optimization (`TPESampler`) with pruning (`MedianPruner`).
-Per trial, it fine-tunes with `train_net.py` and evaluates on `val` with `test_net.py`.
-After the study finishes, it runs one final `test` evaluation with the best trial checkpoint.
-
-Objective metric is selected from `--eval-metric`:
-1. `clear` optimizes `infer/mot/idf1`
-2. `hota` optimizes `infer/mot/hota`
-3. `both` optimizes `infer/mot/hota`
-
-Example:
+### 8. Test
+Find your checkpoint:
 ~~~bash
-python3 tools/tune_optuna.py \
-  --project-root . \
-  --config-file configs/dla/DLA_34_FPN_EMM_HSPOT.yaml \
-  --base-model-file PATH_TO_BASE_CHECKPOINT \
-  --output-dir PATH_TO_HPO_OUTPUT \
-  --study-name hspot_val_hpo \
-  --dataset-key MOT_HSPOT \
-  --train-split val \
-  --val-split val \
-  --test-split test \
-  --eval-metric hota \
-  --n-trials 20 \
-  --max-iter 6000 \
-  --prune-checkpoints 1000,3000
+find artifacts/train -name model_final.pth
 ~~~
 
-Important outputs:
-1. `PATH_TO_HPO_OUTPUT/best_trial.json`
-2. `PATH_TO_HPO_OUTPUT/study_trials.json`
-3. `PATH_TO_HPO_OUTPUT/final_test_eval/final_test_metrics.json`
-
-## Notes
-Both `tools/train_net.py` and `tools/test_net.py` support config overrides:
+Validation evaluation:
 ~~~bash
---opts KEY1 VALUE1 KEY2 VALUE2 ...
+make test \
+  MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  TEST_SET=val \
+  EVAL_METRIC=both
 ~~~
 
-If you get `ModuleNotFoundError: No module named 'siammot'`, set:
+Final test evaluation:
 ~~~bash
-export PYTHONPATH=.:$PYTHONPATH
+make test \
+  MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  TEST_SET=test \
+  EVAL_METRIC=both
+~~~
+
+Run evaluation on CPU:
+~~~bash
+make test GPU=none DEVICE=cpu MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth TEST_SET=val
+~~~
+
+### 9. Hyperparameter Tuning (Optuna, 1 GPU)
+Run HPO:
+~~~bash
+make tune \
+  BASE_MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  EVAL_METRIC=hota \
+  N_TRIALS=20 \
+  MAX_ITER=6000 \
+  PRUNE_CHECKPOINTS=1000,3000 \
+  HPO_TRAIN_SPLIT=val \
+  HPO_VAL_SPLIT=val \
+  HPO_TEST_SPLIT=test
+~~~
+
+CPU-only HPO smoke run (very small):
+~~~bash
+make tune \
+  GPU=none \
+  DEVICE=cpu \
+  BASE_MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  N_TRIALS=1 \
+  MAX_ITER=10 \
+  PRUNE_CHECKPOINTS=5
+~~~
+
+Behavior:
+1. Each trial fine-tunes with `train_net.py`.
+2. Each trial evaluates on `val` with `test_net.py`.
+3. After study completion, one final evaluation runs on `test`.
+
+Objective metric by `EVAL_METRIC`:
+1. `clear` -> `infer/mot/idf1`
+2. `hota` -> `infer/mot/hota`
+3. `both` -> `infer/mot/hota`
+
+HPO outputs:
+1. `artifacts/hpo/best_trial.json`
+2. `artifacts/hpo/study_trials.json`
+3. `artifacts/hpo/final_test_eval/final_test_metrics.json`
+
+## Useful Commands
+Show available Make targets:
+~~~bash
+make help
+~~~
+
+Open an interactive shell in the container:
+~~~bash
+make docker-shell
 ~~~

@@ -22,11 +22,6 @@ from siammot.data.adapters.handler.data_filtering import build_data_filter_fn
 from siammot.engine.mlflow_logger import MLflowLogger
 from yacs.config import CfgNode
 
-try:
-    from apex import amp
-except ImportError:
-    raise ImportError('Use APEX for multi-precision via apex.amp')
-
 parser = argparse.ArgumentParser(description="PyTorch Video Object Detection Inference")
 parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file", type=str)
 parser.add_argument("--output-dir", default="", help="path to output folder", type=str)
@@ -51,7 +46,8 @@ def test(
     output_dir: str,
 ) -> Dict[str, Any]:
 
-    torch.cuda.empty_cache()
+    if str(cfg.MODEL.DEVICE).strip().lower().startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Construct model graph
     model = build_siammot(cfg)

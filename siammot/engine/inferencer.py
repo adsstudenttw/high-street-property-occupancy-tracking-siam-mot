@@ -42,7 +42,7 @@ def do_inference(
     """
     logger = logging.getLogger(__name__)
     model.eval()
-    gpu_device = torch.device('cuda')
+    device = torch.device(cfg.MODEL.DEVICE)
 
     video_loader = build_video_loader(cfg, sample, transforms)
 
@@ -64,14 +64,16 @@ def do_inference(
                                                                   sample.height)
             frame_height, frame_width = video_clip.shape[-2:]
             frame_detection = frame_detection.resize((frame_width, frame_height))
-            frame_detection = [frame_detection.to(gpu_device)]
+            frame_detection = [frame_detection.to(device)]
 
         with torch.no_grad():
-            video_clip = video_clip.to(gpu_device)
-            torch.cuda.synchronize()
+            video_clip = video_clip.to(device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
             network_start_time = time.time()
             output_boxlists= model(video_clip, given_detection=frame_detection)
-            torch.cuda.synchronize()
+            if device.type == "cuda":
+                torch.cuda.synchronize()
             network_time += time.time() - network_start_time
 
         # Resize to original image size and to xywh mode

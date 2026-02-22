@@ -28,7 +28,7 @@ from yacs.config import CfgNode
 try:
     from apex import amp
 except ImportError:
-    raise ImportError("Use APEX for multi-precision via apex.amp")
+    amp = None
 
 
 parser = argparse.ArgumentParser(description="PyTorch SiamMOT Training")
@@ -82,7 +82,10 @@ def train(
     # Initialize mixed-precision training
     use_mixed_precision = cfg.DTYPE == "float16"
     amp_opt_level = "O1" if use_mixed_precision else "O0"
-    model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
+    if use_mixed_precision and amp is None:
+        raise ImportError("Mixed precision (DTYPE=float16) requires apex.amp to be installed.")
+    if amp is not None:
+        model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
 
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(
