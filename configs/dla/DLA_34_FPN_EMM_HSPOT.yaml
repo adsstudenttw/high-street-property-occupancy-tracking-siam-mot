@@ -24,6 +24,7 @@ VIDEO:
    RANDOM_FRAMES_PER_CLIP: 2
 
 MODEL:
+  WEIGHT: "weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"
 
   # The maximum number of frames that a track keeps dormant before it is killed
   TRACK_HEAD:

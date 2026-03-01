@@ -53,6 +53,28 @@ def _parse_det_options(value):
     return options if options else [""]
 
 
+def _load_sequence_metadata(vid_path):
+    info_path = os.path.join(vid_path, "seqinfo.ini")
+    if os.path.isfile(info_path):
+        config = configparser.ConfigParser()
+        config.read(info_path)
+        seq_conf = config["Sequence"]
+        fps = float(seq_conf["frameRate"])
+        num_frames = int(seq_conf["seqLength"])
+        width = int(seq_conf["imWidth"])
+        height = int(seq_conf["imHeight"])
+        return fps, num_frames, width, height
+
+    # Fall back to image inspection when seqinfo is unavailable.
+    fps = 30
+    im_paths = glob.glob(os.path.join(vid_path, "img1", "*.jpg"))
+    num_frames = len(im_paths)
+    im_example = Image.open(im_paths[0])
+    width = im_example.width
+    height = im_example.height
+    return fps, num_frames, width, height
+
+
 def sample_from_mot_csv(csv_path, fps, sample=None, mot17=True, has_gt=False):
     if sample is None:
         id_ = Path(csv_path).stem
@@ -79,6 +101,8 @@ def sample_from_mot_csv(csv_path, fps, sample=None, mot17=True, has_gt=False):
                 label = int(row[7])
                 visibility = float(row[8])
             else:
+                # For custom MOT-style datasets such as HSPOT, the class column may
+                # be meaningless. Internally SiamMOT still expects a single class.
                 label = 1
                 visibility = 1
 
@@ -148,23 +172,7 @@ def main(args, description="Initial ingestion", det_options=None, mot17=True):
 
                 sample = DataSample(vid_id)
 
-                if mot17:
-                    info_path = os.path.join(vid_path, "seqinfo.ini")
-                    config = configparser.ConfigParser()
-                    config.read(info_path)
-                    seq_conf = config["Sequence"]
-                    fps = float(seq_conf['frameRate'])
-                    num_frames = int(seq_conf['seqLength'])
-                    width = int(seq_conf['imWidth'])
-                    height = int(seq_conf['imHeight'])
-                else:
-                    # Assume 30 fps
-                    fps = 30
-                    im_paths = glob.glob(os.path.join(vid_path, "img1", "*.jpg"))
-                    num_frames = len(im_paths)
-                    im_example = Image.open(im_paths[0])
-                    width = im_example.width
-                    height = im_example.height
+                fps, num_frames, width, height = _load_sequence_metadata(vid_path)
 
                 rel_base_dir = vid_path.replace(out_dataset.data_root_path, "").lstrip(os.path.sep)
                 rel_base_dir = os.path.join(rel_base_dir, "img1")

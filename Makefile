@@ -20,10 +20,11 @@ ARTIFACT_ROOT ?= /workspace/artifacts
 TRAIN_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/train
 INFER_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/infer
 HPO_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/hpo
+BASELINE_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/baseline
 
 DATASET_PATH ?= datasets/hspot
 ANNO_NAME ?= anno.json
-MOT17 ?= true
+MOT17 ?= false
 DET_OPTIONS ?=
 
 TRAIN_SPLIT ?= train
@@ -32,6 +33,7 @@ TRAIN_EXTRA_OPTS ?=
 TEST_SET ?= val
 EVAL_METRIC ?= both
 MODEL_FILE ?=
+BASELINE_MODEL_FILE ?= $(WORKDIR)/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 TEST_EXTRA_OPTS ?=
 
 BASE_MODEL_FILE ?=
@@ -63,7 +65,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 	-w $(WORKDIR)
 
 .PHONY: help vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
-	verify-docker-cpu smoke-cpu ingest train test tune trackeval-add trackeval-update
+	verify-docker-cpu smoke-cpu ingest baseline train test tune trackeval-add trackeval-update
 
 help: ## Show available targets.
 	@grep -E '^[a-zA-Z0-9_.-]+:.*## ' Makefile | awk 'BEGIN {FS=":.*## "}; {printf "%-24s %s\n", $$1, $$2}'
@@ -110,6 +112,10 @@ smoke-cpu: ## Run a CPU-only smoke test (no dataset required).
 
 ingest: ## Ingest custom MOT dataset from DATASET_PATH.
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python siammot/data/ingestion/ingest_mot.py --dataset_path $(DATASET_PATH) --anno_name $(ANNO_NAME) --mot17 $(MOT17) --det-options \"$(DET_OPTIONS)\""
+
+baseline: ## Evaluate the default pre-trained checkpoint before HSPOT training.
+	mkdir -p artifacts/baseline
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(BASELINE_ARTIFACT_DIR) --model-file $(BASELINE_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
 train: ## Train/fine-tune with tools/train_net.py.
 	mkdir -p artifacts/train

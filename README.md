@@ -39,19 +39,20 @@ The Docker image:
 
 ### 4. Prepare and Ingest the HSPOT Dataset
 Expected layout:
-1. `datasets/hspot/train`
-2. `datasets/hspot/val`
-3. `datasets/hspot/test`
+1. `datasets/hspot/raw_data/train`
+2. `datasets/hspot/raw_data/val`
+3. `datasets/hspot/raw_data/test`
 
 Run ingestion in Docker:
 ~~~bash
-make ingest DATASET_PATH=datasets/hspot ANNO_NAME=anno.json MOT17=true DET_OPTIONS=""
+make ingest DATASET_PATH=datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
 ~~~
 
 Notes:
 1. `DET_OPTIONS=""` ingests all sequence folders and does not require MOT17 detector suffixes.
-2. Use `MOT17=false` if your GT does not include MOT17 class/visibility columns.
-3. This project uses dataset key `MOT_HSPOT`.
+2. HSPOT is ingested as a single-class MOT-style dataset, so the MOT class column is ignored.
+3. `seqinfo.ini` is still used when present, so HSPOT keeps its true frame rate of 1 fps.
+4. This project uses dataset key `MOT_HSPOT`.
 
 CPU-only smoke test (no dataset required):
 ~~~bash
@@ -78,15 +79,22 @@ make trackeval-update
 ~~~
 
 ### 7. Fine-tune
+The default HSPOT config initializes from:
+1. `weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
+
+Establish a pre-training baseline on `val` before any HSPOT fine-tuning:
+~~~bash
+make baseline \
+  TEST_SET=val \
+  EVAL_METRIC=both
+~~~
+
+Baseline outputs are written under `artifacts/baseline`.
+
 Train on `train` split:
 ~~~bash
 make train \
   TRAIN_SPLIT=train
-~~~
-
-Fine-tune on `val` split (if desired):
-~~~bash
-make train TRAIN_SPLIT=val
 ~~~
 
 Run on CPU (debug/smoke only, much slower):
@@ -100,10 +108,15 @@ Find your checkpoint:
 find artifacts/train -name model_final.pth
 ~~~
 
+Compare the fine-tuned checkpoint against the pre-training baseline in:
+~~~bash
+find artifacts/baseline -name inference_metrics.json
+~~~
+
 Validation evaluation:
 ~~~bash
 make test \
-  MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
   TEST_SET=val \
   EVAL_METRIC=both
 ~~~
@@ -111,21 +124,24 @@ make test \
 Final test evaluation:
 ~~~bash
 make test \
-  MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
   TEST_SET=test \
   EVAL_METRIC=both
 ~~~
 
 Run evaluation on CPU:
 ~~~bash
-make test GPU=none DEVICE=cpu MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth TEST_SET=val
+make test GPU=none DEVICE=cpu MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth TEST_SET=val
 ~~~
 
 ### 9. Hyperparameter Tuning (Optuna, 1 GPU)
+`make tune` expects a SiamMOT checkpoint as `BASE_MODEL_FILE`, typically the `model_final.pth`
+from a previous HSPOT training run under `artifacts/train/...`.
+
 Run HPO:
 ~~~bash
 make tune \
-  BASE_MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
   EVAL_METRIC=hota \
   N_TRIALS=20 \
   MAX_ITER=6000 \
@@ -140,7 +156,7 @@ CPU-only HPO smoke run (very small):
 make tune \
   GPU=none \
   DEVICE=cpu \
-  BASE_MODEL_FILE=/workspace/artifacts/train/<MODEL_NAME>/model_final.pth \
+  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
   N_TRIALS=1 \
   MAX_ITER=10 \
   PRUNE_CHECKPOINTS=5
