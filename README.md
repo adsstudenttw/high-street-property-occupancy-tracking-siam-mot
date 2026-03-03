@@ -132,17 +132,17 @@ make test-finetune GPU=none DEVICE=cpu TEST_SET=val
 ~~~
 
 ### 10. Hyperparameter Tuning (Optuna, 1 GPU)
-`make tune` expects a SiamMOT checkpoint as `BASE_MODEL_FILE`, typically the `model_final.pth`
-from a previous HSPOT training run under `artifacts/train/...`.
+`make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
+SiamMOT checkpoint `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`.
 
 Run HPO:
 ~~~bash
 make tune \
-  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
+  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
   EVAL_METRIC=hota \
-  N_TRIALS=10 \
-  MAX_ITER=1500 \
-  PRUNE_CHECKPOINTS=500,1000 \
+  N_TRIALS=15 \
+  MAX_ITER=2000 \
+  PRUNE_CHECKPOINTS=600,1400 \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
 ~~~
@@ -152,7 +152,7 @@ CPU-only HPO smoke run (very small):
 make tune \
   GPU=none \
   DEVICE=cpu \
-  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
+  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
   N_TRIALS=1 \
   MAX_ITER=10 \
   PRUNE_CHECKPOINTS=5
@@ -179,13 +179,14 @@ HPO outputs:
 Train a final HSPOT model with the best hyperparameters found by Optuna:
 ~~~bash
 make train-best-hpo \
-  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth
+  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 ~~~
 
 This command:
 1. reads `artifacts/hpo/best_trial.json`
 2. extracts the best trial's `sampled_cfg`
 3. launches `train_net.py` on `train` with those hyperparameters
+4. initializes from the pre-trained SiamMOT checkpoint by default
 
 Outputs are written under `artifacts/best_hpo_train`.
 In MLflow these runs are tagged with `stage=final_train_best_hpo`.
