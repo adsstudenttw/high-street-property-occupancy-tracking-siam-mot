@@ -34,10 +34,10 @@ SOLVER:
   # Single-GPU baseline:
   # original MOT17 config assumes 8 GPUs and global batch 16.
   # Here we keep 2 clips/GPU and scale LR linearly.
-  BASE_LR: 0.0025
+  BASE_LR: 0.0015
   WEIGHT_DECAY: 0.0001
-  STEPS: (15000, 20000)
-  MAX_ITER: 25000
+  STEPS: (2500, 3500)
+  MAX_ITER: 4000
   VIDEO_CLIPS_PER_BATCH: 2 #reduce to 1 if memory limits are reached
 
 DATASETS:

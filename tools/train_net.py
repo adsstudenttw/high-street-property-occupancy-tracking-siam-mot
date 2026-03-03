@@ -55,11 +55,35 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument(
+    "--extra-mlflow-tags",
+    nargs="*",
+    default=[],
+    help="optional KEY=VALUE tags to attach to the MLflow run",
+)
+parser.add_argument(
     "--opts",
     nargs=argparse.REMAINDER,
     default=[],
     help="modify config options using the command-line",
 )
+
+
+def parse_mlflow_tags(raw_tags: Any) -> Dict[str, str]:
+    parsed: Dict[str, str] = {}
+    for raw in raw_tags or []:
+        token = str(raw).strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise ValueError(
+                "--extra-mlflow-tags entries must be in KEY=VALUE form, got '{}'".format(token)
+            )
+        key, value = token.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError("MLflow tag key cannot be empty")
+        parsed[key] = value.strip()
+    return parsed
 
 
 def train(
@@ -192,6 +216,7 @@ def main() -> None:
             "stage": "train",
             "model_name": model_name,
         }
+        mlflow_tags.update(parse_mlflow_tags(args.extra_mlflow_tags))
         mlflow_logger.start_run(
             experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
             run_name=mlflow_run_name,

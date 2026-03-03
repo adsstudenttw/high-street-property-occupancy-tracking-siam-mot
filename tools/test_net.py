@@ -33,11 +33,35 @@ parser.add_argument("--num-gpus", default=1, type=int)
 parser.add_argument("--parent-run-id", default="", type=str)
 parser.add_argument("--metrics-file", default="", type=str, help="optional path to dump metrics json")
 parser.add_argument(
+    "--extra-mlflow-tags",
+    nargs="*",
+    default=[],
+    help="optional KEY=VALUE tags to attach to the MLflow run",
+)
+parser.add_argument(
     "--opts",
     nargs=argparse.REMAINDER,
     default=[],
     help="modify config options using the command-line",
 )
+
+
+def parse_mlflow_tags(raw_tags: Any) -> Dict[str, str]:
+    parsed: Dict[str, str] = {}
+    for raw in raw_tags or []:
+        token = str(raw).strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise ValueError(
+                "--extra-mlflow-tags entries must be in KEY=VALUE form, got '{}'".format(token)
+            )
+        key, value = token.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError("MLflow tag key cannot be empty")
+        parsed[key] = value.strip()
+    return parsed
 
 
 def test(
@@ -106,6 +130,7 @@ def main() -> None:
         }
         if args.parent_run_id:
             mlflow_tags["parent_train_run_id"] = args.parent_run_id
+        mlflow_tags.update(parse_mlflow_tags(args.extra_mlflow_tags))
 
         mlflow_logger.start_run(
             experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,

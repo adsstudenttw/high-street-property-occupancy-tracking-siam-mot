@@ -78,7 +78,7 @@ Update later:
 make trackeval-update
 ~~~
 
-### 7. Fine-tune
+### 7. Establish Baseline
 The default HSPOT config initializes from:
 1. `weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
 
@@ -90,19 +90,23 @@ make baseline \
 ~~~
 
 Baseline outputs are written under `artifacts/baseline`.
+In MLflow these runs are tagged with `stage=baseline_eval`.
 
+### 8. Fine-tune
 Train on `train` split:
 ~~~bash
 make train \
   TRAIN_SPLIT=train
 ~~~
 
+In MLflow these runs are tagged with `stage=fine_tune`.
+
 Run on CPU (debug/smoke only, much slower):
 ~~~bash
 make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
 ~~~
 
-### 8. Test
+### 9. Test
 Find your checkpoint:
 ~~~bash
 find artifacts/train -name model_final.pth
@@ -115,26 +119,19 @@ find artifacts/baseline -name inference_metrics.json
 
 Validation evaluation:
 ~~~bash
-make test \
-  MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
+make test-finetune \
   TEST_SET=val \
   EVAL_METRIC=both
 ~~~
 
-Final test evaluation:
-~~~bash
-make test \
-  MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
-  TEST_SET=test \
-  EVAL_METRIC=both
-~~~
+In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
 
 Run evaluation on CPU:
 ~~~bash
-make test GPU=none DEVICE=cpu MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth TEST_SET=val
+make test-finetune GPU=none DEVICE=cpu TEST_SET=val
 ~~~
 
-### 9. Hyperparameter Tuning (Optuna, 1 GPU)
+### 10. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` expects a SiamMOT checkpoint as `BASE_MODEL_FILE`, typically the `model_final.pth`
 from a previous HSPOT training run under `artifacts/train/...`.
 
@@ -143,12 +140,11 @@ Run HPO:
 make tune \
   BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth \
   EVAL_METRIC=hota \
-  N_TRIALS=20 \
-  MAX_ITER=6000 \
-  PRUNE_CHECKPOINTS=1000,3000 \
-  HPO_TRAIN_SPLIT=val \
-  HPO_VAL_SPLIT=val \
-  HPO_TEST_SPLIT=test
+  N_TRIALS=10 \
+  MAX_ITER=1500 \
+  PRUNE_CHECKPOINTS=500,1000 \
+  HPO_TRAIN_SPLIT=train \
+  HPO_VAL_SPLIT=val
 ~~~
 
 CPU-only HPO smoke run (very small):
@@ -165,7 +161,9 @@ make tune \
 Behavior:
 1. Each trial fine-tunes with `train_net.py`.
 2. Each trial evaluates on `val` with `test_net.py`.
-3. After study completion, one final evaluation runs on `test`.
+
+These defaults keep HPO aligned with the small HSPOT `val` split by training each trial on
+`train`, validating on `val`, and using a shorter schedule than the original generic settings.
 
 Objective metric by `EVAL_METRIC`:
 1. `clear` -> `infer/mot/idf1`
@@ -175,7 +173,37 @@ Objective metric by `EVAL_METRIC`:
 HPO outputs:
 1. `artifacts/hpo/best_trial.json`
 2. `artifacts/hpo/study_trials.json`
-3. `artifacts/hpo/final_test_eval/final_test_metrics.json`
+3. `artifacts/hpo/hpo_summary.json`
+
+### 11. Final Training With Best HPO Settings
+Train a final HSPOT model with the best hyperparameters found by Optuna:
+~~~bash
+make train-best-hpo \
+  BASE_MODEL_FILE=/workspace/artifacts/train/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth
+~~~
+
+This command:
+1. reads `artifacts/hpo/best_trial.json`
+2. extracts the best trial's `sampled_cfg`
+3. launches `train_net.py` on `train` with those hyperparameters
+
+Outputs are written under `artifacts/best_hpo_train`.
+In MLflow these runs are tagged with `stage=final_train_best_hpo`.
+
+### 12. Final Evaluation Of The Best HPO Model
+Run the final test evaluation explicitly with the dedicated Make target:
+~~~bash
+make test-best-hpo \
+  BEST_HPO_TEST_SET=test \
+  EVAL_METRIC=both
+~~~
+
+By default this evaluates:
+1. `/workspace/artifacts/best_hpo_train/DLA-34-FPN_box_EMM_MOT_HSPOT_best_hpo/model_final.pth`
+2. on the HSPOT `test` split
+3. with explicit MLflow tags including `stage=final_eval_best_hpo`
+
+Outputs are written under `artifacts/best_hpo_eval`.
 
 ## Useful Commands
 Show available Make targets:

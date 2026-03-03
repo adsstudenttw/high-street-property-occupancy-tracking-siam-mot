@@ -23,17 +23,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--storage-file", default="", type=str)
     parser.add_argument("--datasets-root", default="datasets", type=str)
     parser.add_argument("--dataset-key", default="MOT_HSPOT", type=str)
-    parser.add_argument("--train-split", default="val", type=str)
+    parser.add_argument("--train-split", default="train", type=str)
     parser.add_argument("--val-split", default="val", type=str)
-    parser.add_argument("--test-split", default="test", type=str)
     parser.add_argument("--eval-metric", default="clear", choices=["clear", "hota", "both"])
     parser.add_argument("--direction", default="maximize", choices=["maximize", "minimize"])
-    parser.add_argument("--n-trials", default=20, type=int)
+    parser.add_argument("--n-trials", default=10, type=int)
     parser.add_argument("--timeout-sec", default=0, type=int)
-    parser.add_argument("--max-iter", default=6000, type=int)
+    parser.add_argument("--max-iter", default=1500, type=int)
     parser.add_argument(
         "--prune-checkpoints",
-        default="1000,3000",
+        default="500,1000",
         type=str,
         help="Comma-separated iteration checkpoints used for intermediate pruning reports",
     )
@@ -122,6 +121,20 @@ def combine_opts(*option_lists: Sequence[str]) -> List[str]:
     return merged
 
 
+def hpo_mlflow_tags(
+    args: argparse.Namespace,
+    trial_number: int,
+    run_stage: str,
+    stage_iter: int,
+) -> List[str]:
+    return [
+        "stage={}".format(run_stage),
+        "hpo_study_name={}".format(args.study_name),
+        "hpo_trial_number={}".format(trial_number),
+        "hpo_stage_iter={}".format(stage_iter),
+    ]
+
+
 def run_command(cmd: Sequence[str], cwd: str, env: Dict[str, str], log_path: str) -> None:
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     printable_cmd = " ".join(shlex.quote(part) for part in cmd)
@@ -166,25 +179,35 @@ def is_improved(
 
 
 def sample_trial_cfg(trial: optuna.Trial) -> Dict[str, Any]:
-    track_thresh = trial.suggest_float("model_track_thresh", 0.2, 0.8)
-    start_thresh = trial.suggest_float("model_start_track_thresh", track_thresh, 0.95)
-    resume_thresh = trial.suggest_float("model_resume_track_thresh", 0.2, start_thresh)
+    # Keep the search space tight for HSPOT to avoid wasting trials on
+    # implausible settings for this small single-class dataset.
+    track_thresh = trial.suggest_float("model_track_thresh", 0.35, 0.55)
+    start_thresh = trial.suggest_float(
+        "model_start_track_thresh",
+        max(track_thresh, 0.55),
+        0.75,
+    )
+    resume_thresh = trial.suggest_float(
+        "model_resume_track_thresh",
+        0.25,
+        min(start_thresh, 0.45),
+    )
 
     return {
-        "SOLVER.BASE_LR": trial.suggest_float("solver_base_lr", 1e-4, 5e-3, log=True),
+        "SOLVER.BASE_LR": trial.suggest_float("solver_base_lr", 5e-4, 2e-3, log=True),
         "SOLVER.WEIGHT_DECAY": trial.suggest_float(
-            "solver_weight_decay", 1e-5, 1e-3, log=True
+            "solver_weight_decay", 5e-5, 2e-4, log=True
         ),
         "MODEL.TRACK_HEAD.TRACK_THRESH": track_thresh,
         "MODEL.TRACK_HEAD.START_TRACK_THRESH": start_thresh,
         "MODEL.TRACK_HEAD.RESUME_TRACK_THRESH": resume_thresh,
         "MODEL.TRACK_HEAD.MAX_DORMANT_FRAMES": trial.suggest_int(
-            "model_max_dormant_frames", 5, 60
+            "model_max_dormant_frames", 10, 25
         ),
         "INFERENCE.TRACK_SCORE_THRESH": trial.suggest_float(
-            "infer_track_score_thresh", 0.3, 0.95
+            "infer_track_score_thresh", 0.5, 0.75
         ),
-        "INFERENCE.MIN_TRACK_LENGTH": trial.suggest_int("infer_min_track_length", 1, 15),
+        "INFERENCE.MIN_TRACK_LENGTH": trial.suggest_int("infer_min_track_length", 2, 5),
     }
 
 
@@ -311,6 +334,8 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
             "trial_{:04d}".format(trial.number),
             "--run-info-file",
             stage_run_info_path,
+            "--extra-mlflow-tags",
+            *hpo_mlflow_tags(args, trial.number, "hpo_train", stage_iter),
             "--opts",
             *train_opts,
         ]
@@ -350,6 +375,8 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
             args.val_split,
             "--metrics-file",
             stage_metrics_path,
+            "--extra-mlflow-tags",
+            *hpo_mlflow_tags(args, trial.number, "hpo_eval", stage_iter),
             "--opts",
             *test_opts,
         ]
@@ -429,57 +456,6 @@ def dump_study_summary(study: optuna.study.Study, output_dir: str) -> None:
         json.dump(best_payload, f, indent=2, sort_keys=True)
 
 
-def run_final_test_eval(context: TuningContext, study: optuna.study.Study) -> str:
-    args = context.args
-    best_trial = study.best_trial
-    best_checkpoint = str(best_trial.user_attrs.get("final_checkpoint", "")).strip()
-    if not best_checkpoint or not os.path.isfile(best_checkpoint):
-        raise FileNotFoundError(
-            "Best trial checkpoint not found: {} (trial #{})".format(
-                best_checkpoint, best_trial.number
-            )
-        )
-
-    sampled_cfg = best_trial.user_attrs.get("sampled_cfg", {})
-    if not isinstance(sampled_cfg, dict):
-        sampled_cfg = {}
-
-    final_dir = os.path.join(os.path.abspath(args.output_dir), "final_test_eval")
-    os.makedirs(final_dir, exist_ok=True)
-    metrics_file = os.path.join(final_dir, "final_test_metrics.json")
-
-    final_opts = combine_opts(
-        list(args.base_opts),
-        cfg_dict_to_opts(context.common_eval_cfg),
-        cfg_dict_to_opts(sampled_cfg),
-    )
-    final_cmd = [
-        sys.executable,
-        context.test_script,
-        "--config-file",
-        context.config_file,
-        "--output-dir",
-        final_dir,
-        "--model-file",
-        best_checkpoint,
-        "--test-dataset",
-        args.dataset_key,
-        "--set",
-        args.test_split,
-        "--metrics-file",
-        metrics_file,
-        "--opts",
-        *final_opts,
-    ]
-    run_command(
-        final_cmd,
-        cwd=context.project_root,
-        env=context.env,
-        log_path=os.path.join(final_dir, "final_test_eval.log"),
-    )
-    return metrics_file
-
-
 def main() -> None:
     args = parse_args()
     context = build_context(args)
@@ -514,7 +490,6 @@ def main() -> None:
 
     output_dir = os.path.abspath(args.output_dir)
     dump_study_summary(study, output_dir)
-    final_metrics_file = run_final_test_eval(context, study)
 
     summary = {
         "study_name": args.study_name,
@@ -525,7 +500,6 @@ def main() -> None:
         "best_trial_value": study.best_value,
         "best_trial_params": study.best_trial.params,
         "best_checkpoint": study.best_trial.user_attrs.get("final_checkpoint"),
-        "final_test_metrics_file": final_metrics_file,
     }
     summary_file = os.path.join(output_dir, "hpo_summary.json")
     with open(summary_file, "w", encoding="utf-8") as f:
@@ -534,7 +508,6 @@ def main() -> None:
     print("\nHPO complete.")
     print("Summary: {}".format(summary_file))
     print("Best trial: #{} value={}".format(study.best_trial.number, study.best_value))
-    print("Final test metrics: {}".format(final_metrics_file))
 
 
 if __name__ == "__main__":
