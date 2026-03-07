@@ -1,8 +1,16 @@
 INPUT:
-  MIN_SIZE_TRAIN: (768, 832, 896, 960) # reduce to (640, 704, 768, 832) if memory limits are reached
-  MAX_SIZE_TRAIN: 1920 # reduce to 1600 if memory limits are reached
-  MIN_SIZE_TEST: 960 # reduce to 800 if memory limits are reached
-  MAX_SIZE_TEST: 1920 # reduce to 1600 if memory limits are reached
+  MIN_SIZE_TRAIN: (640, 704, 768, 832)
+  # Alternative for higher detail on small storefront objects:
+  # MIN_SIZE_TRAIN: (768, 832, 896, 960)
+  MAX_SIZE_TRAIN: 1600
+  # Alternative for higher detail on small storefront objects:
+  # MAX_SIZE_TRAIN: 1920
+  MIN_SIZE_TEST: 800
+  # Alternative for higher detail on small storefront objects:
+  # MIN_SIZE_TEST: 960
+  MAX_SIZE_TEST: 1600
+  # Alternative for higher detail on small storefront objects:
+  # MAX_SIZE_TEST: 1920
   PIXEL_MEAN: [0.485, 0.456, 0.406]
   PIXEL_STD: [0.229, 0.224, 0.225]
   TO_BGR255: False
@@ -34,10 +42,10 @@ SOLVER:
   # Single-GPU baseline:
   # original MOT17 config assumes 8 GPUs and global batch 16.
   # Here we keep 2 clips/GPU and scale LR linearly.
-  BASE_LR: 0.0015
+  BASE_LR: 0.0012
   WEIGHT_DECAY: 0.0001
-  STEPS: (2500, 3500)
-  MAX_ITER: 4000
+  STEPS: (900, 1400)
+  MAX_ITER: 3000
   VIDEO_CLIPS_PER_BATCH: 2 #reduce to 1 if memory limits are reached
 
 DATASETS:

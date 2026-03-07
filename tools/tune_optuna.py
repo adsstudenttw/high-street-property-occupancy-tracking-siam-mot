@@ -27,12 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-split", default="val", type=str)
     parser.add_argument("--eval-metric", default="clear", choices=["clear", "hota", "both"])
     parser.add_argument("--direction", default="maximize", choices=["maximize", "minimize"])
-    parser.add_argument("--n-trials", default=10, type=int)
-    parser.add_argument("--timeout-sec", default=0, type=int)
-    parser.add_argument("--max-iter", default=1500, type=int)
+    parser.add_argument("--n-trials", default=30, type=int)
+    parser.add_argument("--timeout-sec", default=360000, type=int)
+    parser.add_argument("--max-iter", default=1800, type=int)
     parser.add_argument(
         "--prune-checkpoints",
-        default="500,1000",
+        default="450,1100",
         type=str,
         help="Comma-separated iteration checkpoints used for intermediate pruning reports",
     )

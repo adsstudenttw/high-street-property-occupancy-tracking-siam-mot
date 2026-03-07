@@ -22,7 +22,6 @@ INFER_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/infer
 HPO_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/hpo
 BASELINE_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/baseline
 FINE_TUNE_EVAL_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/fine_tune_eval
-BEST_HPO_TRAIN_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/best_hpo_train
 BEST_HPO_EVAL_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/best_hpo_eval
 
 DATASET_PATH ?= datasets/hspot
@@ -42,19 +41,16 @@ TEST_EXTRA_OPTS ?=
 
 BASE_MODEL_FILE ?= $(WORKDIR)/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 BEST_TRIAL_FILE ?= $(HPO_ARTIFACT_DIR)/best_trial.json
-BEST_HPO_TRAIN_SPLIT ?= train
-BEST_HPO_MODEL_SUFFIX ?= best_hpo
-BEST_HPO_MODEL_FILE ?= $(BEST_HPO_TRAIN_ARTIFACT_DIR)/DLA-34-FPN_box_EMM_MOT_HSPOT_$(BEST_HPO_MODEL_SUFFIX)/model_final.pth
+BEST_HPO_MODEL_FILE ?=
 BEST_HPO_TEST_SET ?= test
 STUDY_NAME ?= hspot_hpo
 HPO_TRAIN_SPLIT ?= train
 HPO_VAL_SPLIT ?= val
-N_TRIALS ?= 15
-MAX_ITER ?= 2000
-PRUNE_CHECKPOINTS ?= 600,1400
+N_TRIALS ?= 30
+MAX_ITER ?= 1800
+PRUNE_CHECKPOINTS ?= 450,1100
 TUNE_MLFLOW_FLAG ?= --mlflow-enabled
-TUNE_EXTRA_OPTS ?=
-BEST_HPO_TRAIN_EXTRA_OPTS ?=
+TUNE_EXTRA_OPTS ?= --timeout-sec 360000
 
 ifeq ($(GPU),none)
 DOCKER_GPU_ARGS :=
@@ -74,7 +70,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 	-w $(WORKDIR)
 
 .PHONY: help vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
-	verify-docker-cpu smoke-cpu ingest baseline train test-finetune train-best-hpo test test-best-hpo tune trackeval-add trackeval-update
+	verify-docker-cpu smoke-cpu ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update
 
 help: ## Show available targets.
 	@grep -E '^[a-zA-Z0-9_.-]+:.*## ' Makefile | awk 'BEGIN {FS=":.*## "}; {printf "%-24s %s\n", $$1, $$2}'
@@ -134,20 +130,14 @@ test-finetune: ## Evaluate the standard fine-tuned HSPOT model with explicit MLf
 	mkdir -p artifacts/fine_tune_eval
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(FINE_TUNE_EVAL_ARTIFACT_DIR) --model-file $(FINE_TUNE_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --extra-mlflow-tags stage=fine_tune_eval workflow=fine_tune_eval_hspot dataset_key=$(DATASET_KEY) eval_split=$(TEST_SET) model_origin=fine_tune --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
-train-best-hpo: ## Train a final model using the best hyperparameters from artifacts/hpo/best_trial.json.
-	@if [ -z "$(BASE_MODEL_FILE)" ]; then echo "BASE_MODEL_FILE is required, e.g. make train-best-hpo BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"; exit 1; fi
-	mkdir -p artifacts/best_hpo_train
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/train_best_hpo.py --project-root . --config-file $(CONFIG_FILE) --best-trial-file $(BEST_TRIAL_FILE) --base-model-file $(BASE_MODEL_FILE) --train-dir $(BEST_HPO_TRAIN_ARTIFACT_DIR) --dataset-key $(DATASET_KEY) --datasets-root datasets --train-split $(BEST_HPO_TRAIN_SPLIT) --model-suffix $(BEST_HPO_MODEL_SUFFIX) --base-opts $(COMMON_DEVICE_OPTS) $(BEST_HPO_TRAIN_EXTRA_OPTS)"
-
 test: ## Evaluate with tools/test_net.py (set MODEL_FILE and TEST_SET=val|test).
 	@if [ -z "$(MODEL_FILE)" ]; then echo "MODEL_FILE is required, e.g. make test MODEL_FILE=/workspace/artifacts/train/.../model_final.pth"; exit 1; fi
 	mkdir -p artifacts/infer
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(INFER_ARTIFACT_DIR) --model-file $(MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
-test-best-hpo: ## Evaluate the final best-HPO model with explicit MLflow tagging.
-	@if [ -z "$(BEST_HPO_MODEL_FILE)" ]; then echo "BEST_HPO_MODEL_FILE is required"; exit 1; fi
+test-best-hpo: ## Evaluate the best trial checkpoint from HPO on the final split.
 	mkdir -p artifacts/best_hpo_eval
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(BEST_HPO_EVAL_ARTIFACT_DIR) --model-file $(BEST_HPO_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(BEST_HPO_TEST_SET) --extra-mlflow-tags stage=final_eval_best_hpo workflow=best_hpo_final_eval dataset_key=$(DATASET_KEY) eval_split=$(BEST_HPO_TEST_SET) model_origin=best_hpo --opts DATASETS.ROOT_DIR datasets INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_best_hpo.py --project-root . --config-file $(CONFIG_FILE) --best-trial-file $(BEST_TRIAL_FILE) --output-dir $(BEST_HPO_EVAL_ARTIFACT_DIR) --dataset-key $(DATASET_KEY) --test-split $(BEST_HPO_TEST_SET) --eval-metric $(EVAL_METRIC) $(if $(BEST_HPO_MODEL_FILE),--model-file $(BEST_HPO_MODEL_FILE),) --base-opts $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
 tune: ## Run Optuna HPO (set BASE_MODEL_FILE).
 	@if [ -z "$(BASE_MODEL_FILE)" ]; then echo "BASE_MODEL_FILE is required, e.g. make tune BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"; exit 1; fi

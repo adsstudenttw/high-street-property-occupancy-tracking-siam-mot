@@ -175,23 +175,7 @@ HPO outputs:
 2. `artifacts/hpo/study_trials.json`
 3. `artifacts/hpo/hpo_summary.json`
 
-### 11. Final Training With Best HPO Settings
-Train a final HSPOT model with the best hyperparameters found by Optuna:
-~~~bash
-make train-best-hpo \
-  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth
-~~~
-
-This command:
-1. reads `artifacts/hpo/best_trial.json`
-2. extracts the best trial's `sampled_cfg`
-3. launches `train_net.py` on `train` with those hyperparameters
-4. initializes from the pre-trained SiamMOT checkpoint by default
-
-Outputs are written under `artifacts/best_hpo_train`.
-In MLflow these runs are tagged with `stage=final_train_best_hpo`.
-
-### 12. Final Evaluation Of The Best HPO Model
+### 11. Final Evaluation Of The Best HPO Model
 Run the final test evaluation explicitly with the dedicated Make target:
 ~~~bash
 make test-best-hpo \
@@ -200,11 +184,12 @@ make test-best-hpo \
 ~~~
 
 By default this evaluates:
-1. `/workspace/artifacts/best_hpo_train/DLA-34-FPN_box_EMM_MOT_HSPOT_best_hpo/model_final.pth`
+1. the `user_attrs.final_checkpoint` from `artifacts/hpo/best_trial.json`
 2. on the HSPOT `test` split
 3. with explicit MLflow tags including `stage=final_eval_best_hpo`
 
 Outputs are written under `artifacts/best_hpo_eval`.
+Optionally set `BEST_HPO_MODEL_FILE=<checkpoint>` to override the checkpoint from `best_trial.json`.
 
 ## Useful Commands
 Show available Make targets:
