@@ -19,14 +19,41 @@ make vm-bootstrap-docker
 
 Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
 
-### 2. Verify GPU Access from Docker
+### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
+Create a Docker storage path on the mounted SURF volume:
+~~~bash
+sudo mkdir -p /data/mlflow_test_storage/docker
+~~~
+
+Back up Docker daemon config (if present):
+~~~bash
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak.$(date +%F-%H%M%S) 2>/dev/null || true
+~~~
+
+Edit `/etc/docker/daemon.json` so it contains:
+~~~json
+{
+  "data-root": "/data/mlflow_test_storage/docker"
+}
+~~~
+
+If your `/etc/docker/daemon.json` already contains keys (for example NVIDIA runtime config),
+add only the `"data-root"` key and keep existing keys intact.
+
+Restart Docker and verify:
+~~~bash
+sudo systemctl restart docker
+make verify-docker-root
+~~~
+
+### 3. Verify GPU Access from Docker
 ~~~bash
 make verify-docker-gpu
 ~~~
 
 If your VM has no GPU, follow the separate **CPU-Only Setup** section below.
 
-### 3. Build the Project Image (dependencies installed with `uv`)
+### 4. Build the Project Image (dependencies installed with `uv`)
 ~~~bash
 make docker-build
 ~~~
@@ -36,7 +63,7 @@ The Docker image:
 2. Installs Python and dependencies via `uv`.
 3. Installs PyTorch/torchvision, project requirements, and Apex.
 
-### 4. Put Datasets, Weights, and Artifacts on the SURF Volume
+### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
 ~~~bash
 export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
@@ -60,7 +87,7 @@ With this setting, the Make targets will:
 Place the pretrained checkpoint at:
 1. `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
 
-### 5. Prepare and Ingest the HSPOT Dataset
+### 6. Prepare and Ingest the HSPOT Dataset
 Expected layout:
 1. `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/train`
 2. `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/val`
@@ -77,7 +104,7 @@ Notes:
 3. `seqinfo.ini` is still used when present, so HSPOT keeps its true frame rate of 1 fps.
 4. This project uses dataset key `MOT_HSPOT`.
 
-### 6. Configure MLflow Tracking URI
+### 7. Configure MLflow Tracking URI
 Point jobs to your separate MLflow VM:
 ~~~bash
 export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
@@ -85,14 +112,14 @@ export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
 
 All `make` targets pass this environment variable into the container.
 
-### 7. TrackEval Status
+### 8. TrackEval Status
 TrackEval is already vendored in this repository under `third_party/TrackEval`.
 If you want to update it later:
 ~~~bash
 make trackeval-update
 ~~~
 
-### 8. Establish Baseline
+### 9. Establish Baseline
 The default HSPOT config initializes from:
 1. `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth` (mapped from `${HOST_STORAGE_ROOT}/weights`)
 
@@ -106,7 +133,7 @@ make baseline \
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
 In MLflow these runs are tagged with `stage=baseline_eval`.
 
-### 9. Fine-tune
+### 10. Fine-tune
 Train on `train` split:
 ~~~bash
 make train \
@@ -115,7 +142,7 @@ make train \
 
 In MLflow these runs are tagged with `stage=fine_tune`.
 
-### 10. Test
+### 11. Test
 Find your checkpoint:
 ~~~bash
 find "${HOST_STORAGE_ROOT}/artifacts/train" -name model_final.pth
@@ -135,7 +162,7 @@ make test-finetune \
 
 In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
 
-### 11. Hyperparameter Tuning (Optuna, 1 GPU)
+### 12. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
 SiamMOT checkpoint `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`.
 
@@ -168,7 +195,7 @@ HPO outputs:
 2. `${HOST_STORAGE_ROOT}/artifacts/hpo/study_trials.json`
 3. `${HOST_STORAGE_ROOT}/artifacts/hpo/hpo_summary.json`
 
-### 12. Final Evaluation Of The Best HPO Model
+### 13. Final Evaluation Of The Best HPO Model
 Run the final test evaluation explicitly with the dedicated Make target:
 ~~~bash
 make test-best-hpo \
@@ -199,25 +226,52 @@ make vm-bootstrap-cpu
 
 Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
 
-### 2. Build the Project Image
+### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
+Create Docker storage on the mounted SURF volume and set `data-root` in `/etc/docker/daemon.json`:
+~~~bash
+sudo mkdir -p /data/mlflow_test_storage/docker
+~~~
+
+Back up Docker daemon config (if present):
+~~~bash
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak.$(date +%F-%H%M%S) 2>/dev/null || true
+~~~
+
+Edit `/etc/docker/daemon.json` so it contains:
+~~~json
+{
+  "data-root": "/data/mlflow_test_storage/docker"
+}
+~~~
+
+If your `/etc/docker/daemon.json` already contains keys (for example NVIDIA runtime config),
+add only the `"data-root"` key and keep existing keys intact.
+
+Restart Docker and verify:
+~~~bash
+sudo systemctl restart docker
+make verify-docker-root
+~~~
+
+### 3. Build the Project Image
 ~~~bash
 make docker-build
 ~~~
 
-### 3. Configure SURF Volume Storage
+### 4. Configure SURF Volume Storage
 ~~~bash
 export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
 make ensure-storage-dirs
 make print-storage-config
 ~~~
 
-### 4. Verify CPU Container Runtime
+### 5. Verify CPU Container Runtime
 ~~~bash
 make verify-docker-cpu
 make smoke-cpu
 ~~~
 
-### 5. Prepare Dataset and Weights
+### 6. Prepare Dataset and Weights
 1. Put dataset under `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/...`
 2. Put pretrained checkpoint at `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
 3. Ingest dataset:
@@ -226,14 +280,14 @@ make smoke-cpu
 make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
 ~~~
 
-### 6. CPU Baseline, Train, and Eval Commands
+### 7. CPU Baseline, Train, and Eval Commands
 ~~~bash
 make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
 make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 ~~~
 
-### 7. Optional Tiny CPU HPO Smoke Run
+### 8. Optional Tiny CPU HPO Smoke Run
 ~~~bash
 make tune \
   GPU=none \

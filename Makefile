@@ -91,7 +91,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 
 .PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
 	verify-docker-cpu smoke-cpu ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
-	ensure-storage-dirs print-storage-config
+	ensure-storage-dirs print-storage-config verify-docker-root
 
 help: ## Show available targets.
 	@grep -E '^[a-zA-Z0-9_.-]+:.*## ' Makefile | awk 'BEGIN {FS=":.*## "}; {printf "%-24s %s\n", $$1, $$2}'
@@ -104,6 +104,20 @@ print-storage-config: ## Print host/container storage mappings used by Docker ru
 	@echo "HOST_DATASETS_DIR=$(HOST_DATASETS_DIR) -> $(CONTAINER_DATASETS_DIR)"
 	@echo "HOST_WEIGHTS_DIR=$(HOST_WEIGHTS_DIR) -> $(CONTAINER_WEIGHTS_DIR)"
 	@echo "HOST_ARTIFACT_ROOT=$(HOST_ARTIFACT_ROOT) -> $(CONTAINER_ARTIFACT_ROOT)"
+
+verify-docker-root: ## Verify Docker Root Dir is not default /var/lib/docker.
+	@docker_root="$$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"; \
+	if [ -z "$$docker_root" ]; then \
+		echo "Could not determine Docker Root Dir. Is Docker running?"; \
+		exit 1; \
+	fi; \
+	echo "Docker Root Dir=$$docker_root"; \
+	if [ "$$docker_root" = "/var/lib/docker" ]; then \
+		echo "Docker is still using default /var/lib/docker on the root disk."; \
+		echo "Set daemon.json data-root to a SURF-volume path and restart docker."; \
+		exit 1; \
+	fi; \
+	echo "Docker root dir is non-default (good)."
 
 vm-bootstrap-docker: ## Install Docker + NVIDIA container toolkit on Ubuntu 22.04.
 	sudo apt-get update
