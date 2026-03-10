@@ -188,29 +188,36 @@ Optionally set `BEST_HPO_MODEL_FILE=<checkpoint>` to override the checkpoint fro
 Use this path for CPU-only validation/debug runs. It is much slower than GPU training.
 
 ### 0. Prerequisites on the VM
-1. Ubuntu 22.04 VM with Docker installed.
+1. Ubuntu 22.04 VM (no GPU required).
 2. This repository cloned on the VM.
 3. Your MLflow tracking server already running on a separate VM.
 
-### 1. Build the Project Image
+### 1. Install Docker (CPU-Only)
+~~~bash
+make vm-bootstrap-cpu
+~~~
+
+Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
+
+### 2. Build the Project Image
 ~~~bash
 make docker-build
 ~~~
 
-### 2. Configure SURF Volume Storage
+### 3. Configure SURF Volume Storage
 ~~~bash
 export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
 make ensure-storage-dirs
 make print-storage-config
 ~~~
 
-### 3. Verify CPU Container Runtime
+### 4. Verify CPU Container Runtime
 ~~~bash
 make verify-docker-cpu
 make smoke-cpu
 ~~~
 
-### 4. Prepare Dataset and Weights
+### 5. Prepare Dataset and Weights
 1. Put dataset under `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/...`
 2. Put pretrained checkpoint at `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
 3. Ingest dataset:
@@ -219,14 +226,14 @@ make smoke-cpu
 make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
 ~~~
 
-### 5. CPU Baseline, Train, and Eval Commands
+### 6. CPU Baseline, Train, and Eval Commands
 ~~~bash
 make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
 make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 ~~~
 
-### 6. Optional Tiny CPU HPO Smoke Run
+### 7. Optional Tiny CPU HPO Smoke Run
 ~~~bash
 make tune \
   GPU=none \

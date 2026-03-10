@@ -89,7 +89,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 	-v "$(HOST_ARTIFACT_ROOT):$(CONTAINER_ARTIFACT_ROOT)" \
 	-w $(WORKDIR)
 
-.PHONY: help vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
+.PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
 	verify-docker-cpu smoke-cpu ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
 	ensure-storage-dirs print-storage-config
 
@@ -123,6 +123,20 @@ vm-bootstrap-docker: ## Install Docker + NVIDIA container toolkit on Ubuntu 22.0
 	sudo systemctl restart docker
 	@echo ""
 	@echo "Bootstrap complete. Log out/in (or run 'newgrp docker') before using Docker without sudo."
+
+vm-bootstrap-cpu: ## Install Docker only on Ubuntu 22.04 (no NVIDIA toolkit).
+	sudo apt-get update
+	sudo apt-get install -y ca-certificates curl gnupg lsb-release
+	sudo install -m 0755 -d /etc/apt/keyrings
+	curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+	sudo chmod a+r /etc/apt/keyrings/docker.gpg
+	echo "deb [arch=$$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $$(. /etc/os-release && echo $$VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+	sudo apt-get update
+	sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+	sudo usermod -aG docker $$USER
+	sudo systemctl restart docker
+	@echo ""
+	@echo "CPU bootstrap complete. Log out/in (or run 'newgrp docker') before using Docker without sudo."
 
 verify-docker-gpu: ## Validate Docker + GPU runtime.
 	docker --version
