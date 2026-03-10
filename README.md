@@ -4,6 +4,8 @@ Please refer to [INSTALL.md](readme/INSTALL.md) for background installation note
 ## SURF Research Cloud (Ubuntu 22.04) Step-by-Step
 This repository includes a Docker + `uv` + Makefile workflow for running on a SURF Research Cloud VM.
 
+### GPU Setup (Main)
+
 ### 0. Prerequisites on the VM
 1. Ubuntu 22.04 VM with NVIDIA driver already installed.
 2. This repository cloned on the VM.
@@ -22,10 +24,7 @@ Then log out/in (or run `newgrp docker`) so your user can run Docker without `su
 make verify-docker-gpu
 ~~~
 
-If this VM has no GPU (CPU-only smoke test), run:
-~~~bash
-make verify-docker-cpu
-~~~
+If your VM has no GPU, follow the separate **CPU-Only Setup** section below.
 
 ### 3. Build the Project Image (dependencies installed with `uv`)
 ~~~bash
@@ -37,15 +36,39 @@ The Docker image:
 2. Installs Python and dependencies via `uv`.
 3. Installs PyTorch/torchvision, project requirements, and Apex.
 
-### 4. Prepare and Ingest the HSPOT Dataset
+### 4. Put Datasets, Weights, and Artifacts on the SURF Volume
+Set the host-side storage root to your mounted SURF volume path:
+~~~bash
+export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
+~~~
+
+Create required host-side root directories:
+~~~bash
+make ensure-storage-dirs
+~~~
+
+Confirm Docker mount mappings:
+~~~bash
+make print-storage-config
+~~~
+
+With this setting, the Make targets will:
+1. read datasets from `${HOST_STORAGE_ROOT}/datasets` (host) via `/workspace/datasets` (container)
+2. read weights from `${HOST_STORAGE_ROOT}/weights` (host) via `/workspace/weights` (container)
+3. write artifacts to `${HOST_STORAGE_ROOT}/artifacts` (host) via `/workspace/artifacts` (container)
+
+Place the pretrained checkpoint at:
+1. `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
+
+### 5. Prepare and Ingest the HSPOT Dataset
 Expected layout:
-1. `datasets/hspot/raw_data/train`
-2. `datasets/hspot/raw_data/val`
-3. `datasets/hspot/raw_data/test`
+1. `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/train`
+2. `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/val`
+3. `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/test`
 
 Run ingestion in Docker:
 ~~~bash
-make ingest DATASET_PATH=datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
+make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
 ~~~
 
 Notes:
@@ -54,13 +77,7 @@ Notes:
 3. `seqinfo.ini` is still used when present, so HSPOT keeps its true frame rate of 1 fps.
 4. This project uses dataset key `MOT_HSPOT`.
 
-CPU-only smoke test (no dataset required):
-~~~bash
-make smoke-cpu
-~~~
-This validates container startup and core CLI wiring without spending GPU hours.
-
-### 5. Configure MLflow Tracking URI
+### 6. Configure MLflow Tracking URI
 Point jobs to your separate MLflow VM:
 ~~~bash
 export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
@@ -68,19 +85,16 @@ export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
 
 All `make` targets pass this environment variable into the container.
 
-### 6. Add TrackEval (required for HOTA)
-~~~bash
-make trackeval-add
-~~~
-
-Update later:
+### 7. TrackEval Status
+TrackEval is already vendored in this repository under `third_party/TrackEval`.
+If you want to update it later:
 ~~~bash
 make trackeval-update
 ~~~
 
-### 7. Establish Baseline
+### 8. Establish Baseline
 The default HSPOT config initializes from:
-1. `weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
+1. `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth` (mapped from `${HOST_STORAGE_ROOT}/weights`)
 
 Establish a pre-training baseline on `val` before any HSPOT fine-tuning:
 ~~~bash
@@ -89,10 +103,10 @@ make baseline \
   EVAL_METRIC=both
 ~~~
 
-Baseline outputs are written under `artifacts/baseline`.
+Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
 In MLflow these runs are tagged with `stage=baseline_eval`.
 
-### 8. Fine-tune
+### 9. Fine-tune
 Train on `train` split:
 ~~~bash
 make train \
@@ -101,20 +115,15 @@ make train \
 
 In MLflow these runs are tagged with `stage=fine_tune`.
 
-Run on CPU (debug/smoke only, much slower):
-~~~bash
-make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
-~~~
-
-### 9. Test
+### 10. Test
 Find your checkpoint:
 ~~~bash
-find artifacts/train -name model_final.pth
+find "${HOST_STORAGE_ROOT}/artifacts/train" -name model_final.pth
 ~~~
 
 Compare the fine-tuned checkpoint against the pre-training baseline in:
 ~~~bash
-find artifacts/baseline -name inference_metrics.json
+find "${HOST_STORAGE_ROOT}/artifacts/baseline" -name inference_metrics.json
 ~~~
 
 Validation evaluation:
@@ -126,12 +135,7 @@ make test-finetune \
 
 In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
 
-Run evaluation on CPU:
-~~~bash
-make test-finetune GPU=none DEVICE=cpu TEST_SET=val
-~~~
-
-### 10. Hyperparameter Tuning (Optuna, 1 GPU)
+### 11. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
 SiamMOT checkpoint `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`.
 
@@ -147,17 +151,6 @@ make tune \
   HPO_VAL_SPLIT=val
 ~~~
 
-CPU-only HPO smoke run (very small):
-~~~bash
-make tune \
-  GPU=none \
-  DEVICE=cpu \
-  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
-  N_TRIALS=1 \
-  MAX_ITER=10 \
-  PRUNE_CHECKPOINTS=5
-~~~
-
 Behavior:
 1. Each trial fine-tunes with `train_net.py`.
 2. Each trial evaluates on `val` with `test_net.py`.
@@ -171,11 +164,11 @@ Objective metric by `EVAL_METRIC`:
 3. `both` -> `infer/mot/hota`
 
 HPO outputs:
-1. `artifacts/hpo/best_trial.json`
-2. `artifacts/hpo/study_trials.json`
-3. `artifacts/hpo/hpo_summary.json`
+1. `${HOST_STORAGE_ROOT}/artifacts/hpo/best_trial.json`
+2. `${HOST_STORAGE_ROOT}/artifacts/hpo/study_trials.json`
+3. `${HOST_STORAGE_ROOT}/artifacts/hpo/hpo_summary.json`
 
-### 11. Final Evaluation Of The Best HPO Model
+### 12. Final Evaluation Of The Best HPO Model
 Run the final test evaluation explicitly with the dedicated Make target:
 ~~~bash
 make test-best-hpo \
@@ -184,12 +177,65 @@ make test-best-hpo \
 ~~~
 
 By default this evaluates:
-1. the `user_attrs.final_checkpoint` from `artifacts/hpo/best_trial.json`
+1. the `user_attrs.final_checkpoint` from `${HOST_STORAGE_ROOT}/artifacts/hpo/best_trial.json`
 2. on the HSPOT `test` split
 3. with explicit MLflow tags including `stage=final_eval_best_hpo`
 
-Outputs are written under `artifacts/best_hpo_eval`.
+Outputs are written under `${HOST_STORAGE_ROOT}/artifacts/best_hpo_eval`.
 Optionally set `BEST_HPO_MODEL_FILE=<checkpoint>` to override the checkpoint from `best_trial.json`.
+
+### CPU-Only Setup (Separate Path)
+Use this path for CPU-only validation/debug runs. It is much slower than GPU training.
+
+### 0. Prerequisites on the VM
+1. Ubuntu 22.04 VM with Docker installed.
+2. This repository cloned on the VM.
+3. Your MLflow tracking server already running on a separate VM.
+
+### 1. Build the Project Image
+~~~bash
+make docker-build
+~~~
+
+### 2. Configure SURF Volume Storage
+~~~bash
+export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
+make ensure-storage-dirs
+make print-storage-config
+~~~
+
+### 3. Verify CPU Container Runtime
+~~~bash
+make verify-docker-cpu
+make smoke-cpu
+~~~
+
+### 4. Prepare Dataset and Weights
+1. Put dataset under `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/...`
+2. Put pretrained checkpoint at `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
+3. Ingest dataset:
+
+~~~bash
+make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
+~~~
+
+### 5. CPU Baseline, Train, and Eval Commands
+~~~bash
+make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
+make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
+make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
+~~~
+
+### 6. Optional Tiny CPU HPO Smoke Run
+~~~bash
+make tune \
+  GPU=none \
+  DEVICE=cpu \
+  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
+  N_TRIALS=1 \
+  MAX_ITER=10 \
+  PRUNE_CHECKPOINTS=5
+~~~
 
 ## Useful Commands
 Show available Make targets:
