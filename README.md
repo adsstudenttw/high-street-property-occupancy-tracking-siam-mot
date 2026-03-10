@@ -22,7 +22,7 @@ Then log out/in (or run `newgrp docker`) so your user can run Docker without `su
 ### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
 Create a Docker storage path on the mounted SURF volume:
 ~~~bash
-sudo mkdir -p /data/mlflow_test_storage/docker
+sudo mkdir -p /data/siammot_storage/docker
 ~~~
 
 Back up Docker daemon config (if present):
@@ -33,7 +33,7 @@ sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak.$(date +%F-%H%M%S) 2
 Edit `/etc/docker/daemon.json` so it contains:
 ~~~json
 {
-  "data-root": "/data/mlflow_test_storage/docker"
+  "data-root": "/data/siammot_storage/docker"
 }
 ~~~
 
@@ -229,7 +229,7 @@ Then log out/in (or run `newgrp docker`) so your user can run Docker without `su
 ### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
 Create Docker storage on the mounted SURF volume and set `data-root` in `/etc/docker/daemon.json`:
 ~~~bash
-sudo mkdir -p /data/mlflow_test_storage/docker
+sudo mkdir -p /data/siammot_storage/docker
 ~~~
 
 Back up Docker daemon config (if present):
@@ -240,7 +240,7 @@ sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak.$(date +%F-%H%M%S) 2
 Edit `/etc/docker/daemon.json` so it contains:
 ~~~json
 {
-  "data-root": "/data/mlflow_test_storage/docker"
+  "data-root": "/data/siammot_storage/docker"
 }
 ~~~
 
