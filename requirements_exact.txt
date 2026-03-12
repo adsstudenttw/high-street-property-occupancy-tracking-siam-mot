@@ -4,8 +4,8 @@ motmetrics==1.2.0
 timm==0.4.5
 tqdm==4.59.0
 imgaug==0.4.0
-# torchvision==0.8.2
-# torch==1.7.1
+torchvision==0.8.2
+torch==1.7.1
 yacs==0.1.8
 Pillow==10.0.1
 pycocotools==2.0.2

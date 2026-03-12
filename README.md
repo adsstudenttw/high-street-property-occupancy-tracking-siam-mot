@@ -2,7 +2,7 @@
 Please refer to [INSTALL.md](readme/INSTALL.md) for background installation notes.
 
 ## SURF Research Cloud (Ubuntu 22.04) Step-by-Step
-This repository includes a Docker + `uv` + Makefile workflow for running on a SURF Research Cloud VM.
+This repository includes a Docker + conda + Makefile workflow for running on a SURF Research Cloud VM.
 
 ### GPU Setup (Main)
 
@@ -53,15 +53,15 @@ make verify-docker-gpu
 
 If your VM has no GPU, follow the separate **CPU-Only Setup** section below.
 
-### 4. Build the Project Image (dependencies installed with `uv`)
+### 4. Build the Project Image (dependencies installed with conda)
 ~~~bash
 make docker-build
 ~~~
 
 The Docker image:
 1. Uses CUDA 11.8 + Ubuntu 22.04.
-2. Installs Python and dependencies via `uv`.
-3. Installs PyTorch/torchvision, project requirements, and Apex.
+2. Creates a conda environment (`siammot`) with Python 3.8.
+3. Installs PyTorch/torchvision, exact project dependencies from `requirements_exact.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
