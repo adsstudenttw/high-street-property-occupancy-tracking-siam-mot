@@ -25,6 +25,8 @@ RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_6
     bash /tmp/miniconda.sh -b -p "${CONDA_DIR}" && \
     rm -f /tmp/miniconda.sh && \
     "${CONDA_DIR}/bin/conda" config --system --set auto_update_conda false && \
+    "${CONDA_DIR}/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    "${CONDA_DIR}/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r && \
     "${CONDA_DIR}/bin/conda" clean -afy
 
 ENV PATH="${CONDA_DIR}/bin:${PATH}"
@@ -55,7 +57,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
 
 ENV CONDA_ENV="${CONDA_ENV}"
 ENV PATH="${CONDA_DIR}/envs/${CONDA_ENV}/bin:${CONDA_DIR}/bin:${PATH}"
-ENV PYTHONPATH="/workspace:${PYTHONPATH}"
+ENV PYTHONPATH="/workspace"
 
 ENTRYPOINT ["/usr/local/bin/siammot-entrypoint.sh"]
 CMD ["bash"]
