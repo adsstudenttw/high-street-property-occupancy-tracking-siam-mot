@@ -113,8 +113,9 @@ Notes:
 2. The image still builds Apex with `APEX_CPP_EXT=1 APEX_CUDA_EXT=1`, matching the upstream `maskrcnn-benchmark` expectation more closely than a Python-only Apex install.
 3. The Docker build also patches Apex's newer `torch.library` and `torch.compiler` checks so `import apex` remains compatible with Torch 1.7.1.
 4. `cityscapesscripts` is installed with the `maskrcnn-benchmark` extras in the image, rather than as a generic project requirement.
-5. NumPy is constrained below `1.24` because the MXNet/GluonCV dependency path used by SiamMOT still relies on the removed `np.bool` alias.
-6. Pillow is constrained below `10` because GluonCV still references legacy constants such as `Image.LINEAR`, which Pillow removed in `10.0.0`.
+5. NumPy is capped at the validated legacy value range because the MXNet/GluonCV dependency path used by SiamMOT still relies on the removed `np.bool` alias.
+6. Pillow is capped below `10` because GluonCV still references legacy constants such as `Image.LINEAR`, which Pillow removed in `10.0.0`.
+7. `requirements.txt` now uses upper bounds derived from `requirements_exact.txt` so `uv` can resolve dependencies without drifting past the validated legacy stack.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
