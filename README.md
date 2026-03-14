@@ -108,6 +108,11 @@ The Docker image:
 3. Installs CUDA 11.0 PyTorch/torchvision wheels, project dependencies from `requirements.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
 4. Runs correctly on a newer Ubuntu 22.04 host as long as the NVIDIA driver is recent enough for CUDA 11.x containers.
 
+Notes:
+1. Apex is installed in Python-only mode by default, so `apex.amp` remains available for SiamMOT.
+2. This avoids the current Apex CUDA/C++ extension build failure against `torch==1.7.1+cu110`.
+3. If you need fused Apex CUDA extensions for maximum performance, pin an older Apex revision that matches this PyTorch 1.7.1 stack instead of building current `HEAD` with `APEX_CPP_EXT=1 APEX_CUDA_EXT=1`.
+
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
 ~~~bash
