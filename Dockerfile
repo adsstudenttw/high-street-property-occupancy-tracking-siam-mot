@@ -25,10 +25,10 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /workspace
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements_exact.txt /tmp/requirements_exact.txt
 COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 
-# Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then requirements.txt.
+# Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then the locked dependency set.
 # Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
 # Apex is pinned to a torch==1.7.1+cu110-compatible revision instead of current HEAD.
 # Patch a couple of newer Apex Torch API checks so `import apex` still works on Torch 1.7.1.
@@ -40,7 +40,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
       -f https://download.pytorch.org/whl/torch_stable.html \
       torch==1.7.1+cu110 \
       torchvision==0.8.2+cu110 && \
-    uv pip install --python /opt/venv/bin/python -r /tmp/requirements.txt && \
+    uv pip install --python /opt/venv/bin/python -r /tmp/requirements_exact.txt && \
     uv pip install --python /opt/venv/bin/python ninja yacs cython matplotlib tqdm opencv-python cityscapesscripts && \
     git clone --depth 1 https://github.com/facebookresearch/maskrcnn-benchmark.git /opt/src/maskrcnn-benchmark && \
     cuda_dir="/opt/src/maskrcnn-benchmark/maskrcnn_benchmark/csrc/cuda" && \

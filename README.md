@@ -105,7 +105,7 @@ make docker-build
 The Docker image:
 1. Uses CUDA 11.0 + Ubuntu 20.04 inside the container.
 2. Installs `uv`, then creates a Python 3.8 virtual environment at `/opt/venv`.
-3. Installs CUDA 11.0 PyTorch/torchvision wheels, project dependencies from `requirements.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
+3. Installs CUDA 11.0 PyTorch/torchvision wheels, project dependencies from `requirements_exact.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
 4. Runs correctly on a newer Ubuntu 22.04 host as long as the NVIDIA driver is recent enough for CUDA 11.x containers.
 
 Notes:
@@ -114,6 +114,7 @@ Notes:
 3. The Docker build also patches Apex's newer `torch.library` and `torch.compiler` checks so `import apex` remains compatible with Torch 1.7.1.
 4. `cityscapesscripts` is installed with the `maskrcnn-benchmark` extras in the image, rather than as a generic project requirement.
 5. NumPy is constrained below `1.24` because the MXNet/GluonCV dependency path used by SiamMOT still relies on the removed `np.bool` alias.
+6. Pillow is constrained below `10` because GluonCV still references legacy constants such as `Image.LINEAR`, which Pillow removed in `10.0.0`.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
