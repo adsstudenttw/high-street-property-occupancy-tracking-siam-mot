@@ -30,6 +30,7 @@ COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 
 # Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then requirements.txt.
 # Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
+# Apex is pinned to a torch==1.7.1+cu110-compatible revision instead of current HEAD.
 RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     uv python install 3.8 && \
     uv venv --python 3.8 /opt/venv && \
@@ -46,7 +47,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     bash -lc "cd /opt/src/maskrcnn-benchmark && /opt/venv/bin/python setup.py build develop" && \
     PATH="/opt/venv/bin:${PATH}" APEX_CPP_EXT=1 APEX_CUDA_EXT=1 uv pip install --python /opt/venv/bin/python \
       --no-build-isolation \
-      git+https://github.com/NVIDIA/apex.git
+      git+https://github.com/NVIDIA/apex.git@da9f5ae
 
 ENV PATH="/opt/venv/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
