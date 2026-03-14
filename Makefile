@@ -91,7 +91,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 
 .PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
 	verify-docker-cpu smoke-cpu ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
-	ensure-storage-dirs print-storage-config verify-docker-root
+	ensure-storage-dirs print-storage-config verify-docker-root verify-containerd-root verify-storage-root
 
 help: ## Show available targets.
 	@grep -E '^[a-zA-Z0-9_.-]+:.*## ' Makefile | awk 'BEGIN {FS=":.*## "}; {printf "%-24s %s\n", $$1, $$2}'
@@ -118,6 +118,32 @@ verify-docker-root: ## Verify Docker Root Dir is not default /var/lib/docker.
 		exit 1; \
 	fi; \
 	echo "Docker root dir is non-default (good)."
+
+verify-containerd-root: ## Verify containerd root is not default /var/lib/containerd.
+	@config_file="/etc/containerd/config.toml"; \
+	if [ ! -f "$$config_file" ]; then \
+		echo "Missing $$config_file. Configure containerd root on a SURF-volume path."; \
+		exit 1; \
+	fi; \
+	containerd_root="$$(awk -F= '/^[[:space:]]*root[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/,"",$$2); gsub(/"/,"",$$2); print $$2; exit}' "$$config_file")"; \
+	containerd_state="$$(awk -F= '/^[[:space:]]*state[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$$/,"",$$2); gsub(/"/,"",$$2); print $$2; exit}' "$$config_file")"; \
+	if [ -z "$$containerd_root" ]; then \
+		echo "Could not determine containerd root from $$config_file."; \
+		exit 1; \
+	fi; \
+	echo "containerd root=$$containerd_root"; \
+	if [ -n "$$containerd_state" ]; then \
+		echo "containerd state=$$containerd_state"; \
+	fi; \
+	if [ "$$containerd_root" = "/var/lib/containerd" ]; then \
+		echo "containerd is still using default /var/lib/containerd on the root disk."; \
+		echo "Set /etc/containerd/config.toml root to a SURF-volume path and restart containerd."; \
+		exit 1; \
+	fi; \
+	echo "containerd root is non-default (good)."
+
+verify-storage-root: verify-docker-root verify-containerd-root ## Verify Docker and containerd both use non-default storage roots.
+	@echo "Docker and containerd storage roots are non-default (good)."
 
 vm-bootstrap-docker: ## Install Docker + NVIDIA container toolkit on Ubuntu 22.04.
 	sudo apt-get update

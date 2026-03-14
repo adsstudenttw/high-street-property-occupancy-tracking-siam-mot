@@ -19,10 +19,11 @@ make vm-bootstrap-docker
 
 Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
 
-### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
-Create a Docker storage path on the mounted SURF volume:
+### 2. Move Docker And containerd Storage To The SURF Volume (Recommended For 20GB Root Disk)
+Create Docker and containerd storage paths on the mounted SURF volume:
 ~~~bash
 sudo mkdir -p /data/siammot_storage/docker
+sudo mkdir -p /data/siammot_storage/containerd
 ~~~
 
 Back up Docker daemon config (if present):
@@ -40,11 +41,54 @@ Edit `/etc/docker/daemon.json` so it contains:
 If your `/etc/docker/daemon.json` already contains keys (for example NVIDIA runtime config),
 add only the `"data-root"` key and keep existing keys intact.
 
-Restart Docker and verify:
-~~~bash
-sudo systemctl restart docker
-make verify-docker-root
+On GPU VMs that already have the NVIDIA runtime configured, the merged file will look like:
+~~~json
+{
+  "data-root": "/data/siammot_storage/docker",
+  "runtimes": {
+    "nvidia": {
+      "args": [],
+      "path": "nvidia-container-runtime"
+    }
+  }
+}
 ~~~
+
+Create `/etc/containerd/config.toml` so containerd persistent storage is also moved off the root disk:
+~~~bash
+sudo mkdir -p /etc/containerd
+sudo tee /etc/containerd/config.toml > /dev/null <<'EOF'
+version = 2
+root = "/data/siammot_storage/containerd"
+state = "/run/containerd"
+EOF
+~~~
+
+Restart containerd and Docker, then verify:
+~~~bash
+sudo systemctl restart containerd
+sudo systemctl restart docker
+make verify-storage-root
+~~~
+
+Expected:
+1. `DockerRootDir=/data/siammot_storage/docker`
+2. `root = "/data/siammot_storage/containerd"`
+3. `state = "/run/containerd"`
+
+You can also run `make verify-docker-root` or `make verify-containerd-root` individually.
+
+If you previously used the default `/var/lib/containerd`, you can move the old data aside after the restart:
+~~~bash
+sudo systemctl stop docker
+sudo systemctl stop containerd
+sudo mv /var/lib/containerd /var/lib/containerd.bak.$(date +%F-%H%M%S)
+sudo mkdir -p /var/lib/containerd
+sudo systemctl start containerd
+sudo systemctl start docker
+~~~
+
+Keep the backup directory until Docker builds and runs succeed on the VM.
 
 ### 3. Verify GPU Access from Docker
 ~~~bash
@@ -226,10 +270,11 @@ make vm-bootstrap-cpu
 
 Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
 
-### 2. Move Docker Data Root To The SURF Volume (Recommended For 20GB Root Disk)
-Create Docker storage on the mounted SURF volume and set `data-root` in `/etc/docker/daemon.json`:
+### 2. Move Docker And containerd Storage To The SURF Volume (Recommended For 20GB Root Disk)
+Create Docker and containerd storage on the mounted SURF volume:
 ~~~bash
 sudo mkdir -p /data/siammot_storage/docker
+sudo mkdir -p /data/siammot_storage/containerd
 ~~~
 
 Back up Docker daemon config (if present):
@@ -244,13 +289,38 @@ Edit `/etc/docker/daemon.json` so it contains:
 }
 ~~~
 
-If your `/etc/docker/daemon.json` already contains keys (for example NVIDIA runtime config),
-add only the `"data-root"` key and keep existing keys intact.
-
-Restart Docker and verify:
+Create `/etc/containerd/config.toml` so containerd persistent storage is also moved off the root disk:
 ~~~bash
+sudo mkdir -p /etc/containerd
+sudo tee /etc/containerd/config.toml > /dev/null <<'EOF'
+version = 2
+root = "/data/siammot_storage/containerd"
+state = "/run/containerd"
+EOF
+~~~
+
+Restart containerd and Docker, then verify:
+~~~bash
+sudo systemctl restart containerd
 sudo systemctl restart docker
-make verify-docker-root
+make verify-storage-root
+~~~
+
+Expected:
+1. `DockerRootDir=/data/siammot_storage/docker`
+2. `root = "/data/siammot_storage/containerd"`
+3. `state = "/run/containerd"`
+
+You can also run `make verify-docker-root` or `make verify-containerd-root` individually.
+
+If you previously used the default `/var/lib/containerd`, you can move the old data aside after the restart:
+~~~bash
+sudo systemctl stop docker
+sudo systemctl stop containerd
+sudo mv /var/lib/containerd /var/lib/containerd.bak.$(date +%F-%H%M%S)
+sudo mkdir -p /var/lib/containerd
+sudo systemctl start containerd
+sudo systemctl start docker
 ~~~
 
 ### 3. Build the Project Image
