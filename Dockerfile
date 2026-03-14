@@ -44,10 +44,13 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
   numpy==1.22.0 \
   Pillow==9.5.0 \
   cython==3.0.11 && \
+  grep -v '^pycocotools' /tmp/requirements.txt > /tmp/requirements.docker.txt && \
   uv pip install --python /opt/venv/bin/python \
   --no-build-isolation \
-  -r /tmp/requirements.txt && \
+  -r /tmp/requirements.docker.txt && \
   uv pip install --python /opt/venv/bin/python ninja matplotlib opencv-python cityscapesscripts && \
+  git clone --depth 1 https://github.com/cocodataset/cocoapi.git /opt/src/cocoapi && \
+  bash -lc "cd /opt/src/cocoapi/PythonAPI && /opt/venv/bin/python setup.py build_ext install" && \
   git clone --depth 1 https://github.com/facebookresearch/maskrcnn-benchmark.git /opt/src/maskrcnn-benchmark && \
   cuda_dir="/opt/src/maskrcnn-benchmark/maskrcnn_benchmark/csrc/cuda" && \
   perl -i -pe 's/AT_CHECK/TORCH_CHECK/' "$cuda_dir/deform_pool_cuda.cu" "$cuda_dir/deform_conv_cuda.cu" && \

@@ -117,6 +117,7 @@ Notes:
 6. Pillow is capped below `10` because GluonCV still references legacy constants such as `Image.LINEAR`, which Pillow removed in `10.0.0`.
 7. `requirements.txt` now uses upper bounds derived from `requirements_exact.txt` so `uv` can resolve dependencies without drifting past the validated legacy stack.
 8. The Docker build preinstalls the legacy `numpy`/`Pillow` values and `cython`, then installs `requirements.txt` with `--no-build-isolation`, so older source builds such as `pycocotools==2.0.2` can complete under `uv`.
+9. `pycocotools` is installed from `cocoapi/PythonAPI` in the image, following the upstream `maskrcnn-benchmark` install guide, because the old `pycocotools==2.0.2` sdist does not build reliably under `uv`.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
