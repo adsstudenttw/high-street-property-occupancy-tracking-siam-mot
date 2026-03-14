@@ -41,7 +41,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
       torch==1.7.1+cu110 \
       torchvision==0.8.2+cu110 && \
     uv pip install --python /opt/venv/bin/python -r /tmp/requirements.txt && \
-    uv pip install --python /opt/venv/bin/python ninja yacs cython matplotlib tqdm opencv-python && \
+    uv pip install --python /opt/venv/bin/python ninja yacs cython matplotlib tqdm opencv-python cityscapesscripts && \
     git clone --depth 1 https://github.com/facebookresearch/maskrcnn-benchmark.git /opt/src/maskrcnn-benchmark && \
     cuda_dir="/opt/src/maskrcnn-benchmark/maskrcnn_benchmark/csrc/cuda" && \
     perl -i -pe 's/AT_CHECK/TORCH_CHECK/' "$cuda_dir/deform_pool_cuda.cu" "$cuda_dir/deform_conv_cuda.cu" && \

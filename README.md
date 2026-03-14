@@ -112,6 +112,7 @@ Notes:
 1. Apex is pinned to `git+https://github.com/NVIDIA/apex.git@da9f5ae` to stay compatible with `torch==1.7.1+cu110`.
 2. The image still builds Apex with `APEX_CPP_EXT=1 APEX_CUDA_EXT=1`, matching the upstream `maskrcnn-benchmark` expectation more closely than a Python-only Apex install.
 3. The Docker build also patches Apex's newer `torch.library` and `torch.compiler` checks so `import apex` remains compatible with Torch 1.7.1.
+4. `cityscapesscripts` is installed with the `maskrcnn-benchmark` extras in the image, rather than as a generic project requirement.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:
