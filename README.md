@@ -105,7 +105,7 @@ make docker-build
 The Docker image:
 1. Uses CUDA 11.0 + Ubuntu 20.04 inside the container.
 2. Installs `uv`, then creates a Python 3.8 virtual environment at `/opt/venv`.
-3. Installs CUDA 11.0 PyTorch/torchvision wheels, project dependencies from `requirements_exact.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
+3. Installs CUDA 11.0 PyTorch/torchvision wheels, project dependencies from `requirements.txt`, `maskrcnn-benchmark` (with the upstream compatibility patch), and Apex.
 4. Runs correctly on a newer Ubuntu 22.04 host as long as the NVIDIA driver is recent enough for CUDA 11.x containers.
 
 Notes:
