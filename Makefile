@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 IMAGE_NAME ?= siammot
-IMAGE_TAG ?= ubuntu22-cu118-conda
+IMAGE_TAG ?= ubuntu22-cu118-uv
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
 PROJECT_ROOT := $(abspath .)
@@ -161,7 +161,7 @@ verify-docker-cpu: ensure-storage-dirs ## Validate container startup without GPU
 	docker --version
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python -c 'import platform; print(platform.platform())'"
 
-docker-build: ## Build the project image (dependencies installed with conda + pip).
+docker-build: ## Build the project image (dependencies installed with uv in a Python 3.8 venv).
 	docker build -t $(IMAGE) -f Dockerfile .
 
 docker-shell: ensure-storage-dirs ## Open an interactive shell in the project container.
