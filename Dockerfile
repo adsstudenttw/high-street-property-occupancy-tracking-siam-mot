@@ -31,6 +31,7 @@ COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 # Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then requirements.txt.
 # Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
 # Apex is pinned to a torch==1.7.1+cu110-compatible revision instead of current HEAD.
+# Patch a couple of newer Apex Torch API checks so `import apex` still works on Torch 1.7.1.
 RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     uv python install 3.8 && \
     uv venv --python 3.8 /opt/venv && \
@@ -47,7 +48,10 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     bash -lc "cd /opt/src/maskrcnn-benchmark && /opt/venv/bin/python setup.py build develop" && \
     PATH="/opt/venv/bin:${PATH}" APEX_CPP_EXT=1 APEX_CUDA_EXT=1 uv pip install --python /opt/venv/bin/python \
       --no-build-isolation \
-      git+https://github.com/NVIDIA/apex.git@da9f5ae
+      git+https://github.com/NVIDIA/apex.git@da9f5ae && \
+    apex_norm_file="/opt/venv/lib/python3.8/site-packages/apex/normalization/fused_layer_norm.py" && \
+    perl -0pi -e 's/return hasattr\(torch\.library, "custom_op"\)/return hasattr(getattr(torch, "library", None), "custom_op")/' "$apex_norm_file" && \
+    perl -0pi -e 's/torch\.compiler\.is_compiling\(\)/(hasattr(torch, "compiler") and torch.compiler.is_compiling())/g' "$apex_norm_file"
 
 ENV PATH="/opt/venv/bin:${PATH}"
 ENV PYTHONPATH="/workspace"
