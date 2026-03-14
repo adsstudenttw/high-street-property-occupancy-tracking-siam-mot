@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:11.0.3-cudnn8-devel-ubuntu20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -29,7 +29,7 @@ COPY requirements.txt /tmp/requirements.txt
 COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 
 # Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then requirements.txt.
-# Use Python 3.8 to stay compatible with the historical torch/apex stack used by SiamMOT.
+# Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
 RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     uv python install 3.8 && \
     uv venv --python 3.8 /opt/venv && \
@@ -44,7 +44,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
     cuda_dir="/opt/src/maskrcnn-benchmark/maskrcnn_benchmark/csrc/cuda" && \
     perl -i -pe 's/AT_CHECK/TORCH_CHECK/' "$cuda_dir/deform_pool_cuda.cu" "$cuda_dir/deform_conv_cuda.cu" && \
     bash -lc "cd /opt/src/maskrcnn-benchmark && /opt/venv/bin/python setup.py build develop" && \
-    APEX_CPP_EXT=1 APEX_CUDA_EXT=1 uv pip install --python /opt/venv/bin/python \
+    PATH="/opt/venv/bin:${PATH}" APEX_CPP_EXT=1 APEX_CUDA_EXT=1 uv pip install --python /opt/venv/bin/python \
       --no-build-isolation \
       git+https://github.com/NVIDIA/apex.git
 

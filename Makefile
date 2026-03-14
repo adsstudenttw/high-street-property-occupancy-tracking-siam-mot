@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 IMAGE_NAME ?= siammot
-IMAGE_TAG ?= ubuntu22-cu118-uv
+IMAGE_TAG ?= ubuntu20-cu110-uv
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
 PROJECT_ROOT := $(abspath .)
@@ -180,7 +180,7 @@ vm-bootstrap-cpu: ## Install Docker only on Ubuntu 22.04 (no NVIDIA toolkit).
 
 verify-docker-gpu: ## Validate Docker + GPU runtime.
 	docker --version
-	docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+	docker run --rm --gpus all nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
 
 verify-docker-cpu: GPU=none
 verify-docker-cpu: ensure-storage-dirs ## Validate container startup without GPU access.
