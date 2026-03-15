@@ -145,6 +145,8 @@ class DatasetInference(object):
             data_filter_fn=self._data_filter_fn,
             keep_debug_files=bool(self._cfg.INFERENCE.HOTA_KEEP_DEBUG_FILES),
             debug_dir=str(self._cfg.INFERENCE.HOTA_DEBUG_DIR).strip() or None,
+            duplicate_gt_policy=str(self._cfg.INFERENCE.HOTA_DUPLICATE_GT_POLICY),
+            duplicate_pred_policy=str(self._cfg.INFERENCE.HOTA_DUPLICATE_PRED_POLICY),
         )
         return hota_summary, overall_metrics
 

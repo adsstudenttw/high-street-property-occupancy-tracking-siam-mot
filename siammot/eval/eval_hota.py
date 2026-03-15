@@ -18,6 +18,7 @@ HOTA_TRACKER_NAME = "siammot_tracker"
 HOTA_CLASS_NAME = "pedestrian"
 
 logger = logging.getLogger(__name__)
+_VALID_DUPLICATE_POLICIES = {"error", "keep_first", "keep_highest_conf"}
 
 
 def _as_positive_track_id(track_id: Any, id_map: Dict[str, int]) -> int:
@@ -53,6 +54,63 @@ def _entity_confidence(entity: Any) -> float:
         return float(conf)
     except (TypeError, ValueError):
         return 1.0
+
+
+def _normalize_policy(policy: str, entity_kind: str) -> str:
+    normalized = str(policy).strip().lower()
+    if normalized not in _VALID_DUPLICATE_POLICIES:
+        raise ValueError(
+            "Invalid HOTA duplicate {} policy '{}'. Supported values: {}.".format(
+                entity_kind, policy, ", ".join(sorted(_VALID_DUPLICATE_POLICIES))
+            )
+        )
+    return normalized
+
+
+def _format_duplicate_error(
+    entity_kind: str,
+    sample_id: str,
+    frame_number: int,
+    duplicate_ids: Sequence[Any],
+) -> str:
+    formatted_ids = ", ".join(str(duplicate_id) for duplicate_id in duplicate_ids)
+    return (
+        "Found duplicate {} track ids in HOTA export for sample '{}' frame {}: {}. "
+        "Set the corresponding INFERENCE.HOTA_DUPLICATE_{}_POLICY option to "
+        "'keep_first' or 'keep_highest_conf' to normalize at export time."
+    ).format(entity_kind, sample_id, frame_number, formatted_ids, entity_kind.upper())
+
+
+def _resolve_duplicate_entities(
+    entities: Sequence[Any],
+    policy: str,
+    entity_kind: str,
+    sample_id: str,
+    frame_number: int,
+) -> Tuple[Sequence[Any], int]:
+    grouped_entities: Dict[Any, Sequence[Tuple[int, Any]]] = {}
+    for order, entity in enumerate(entities):
+        track_id = getattr(entity, "id", 0)
+        mapped_track_id = int(track_id) if str(track_id).lstrip("-").isdigit() else track_id
+        grouped_entities.setdefault(mapped_track_id, []).append((order, entity))
+
+    duplicate_ids = [track_id for track_id, grouped in grouped_entities.items() if len(grouped) > 1]
+    if not duplicate_ids:
+        return entities, 0
+
+    if policy == "error":
+        raise RuntimeError(_format_duplicate_error(entity_kind, sample_id, frame_number, duplicate_ids))
+
+    resolved_entities = []
+    for grouped in grouped_entities.values():
+        if policy == "keep_first":
+            winner = min(grouped, key=lambda item: item[0])
+        else:
+            winner = max(grouped, key=lambda item: (_entity_confidence(item[1]), -item[0]))
+        resolved_entities.append(winner)
+
+    resolved_entities.sort(key=lambda item: item[0])
+    return [item[1] for item in resolved_entities], len(entities) - len(resolved_entities)
 
 
 def _is_valid_bbox_xywh(bbox: Optional[Tuple[float, float, float, float]]) -> bool:
@@ -91,6 +149,8 @@ def _export_motchallenge_layout(
     predicted_samples: PredictedSamples,
     data_filter_fn: Optional[Callable[..., Any]],
     root_dir: str,
+    duplicate_gt_policy: str,
+    duplicate_pred_policy: str,
 ) -> Tuple[str, str, str, Sequence[str], Dict[str, int]]:
     split_name = f"{HOTA_BENCHMARK}-{HOTA_SPLIT}"
 
@@ -108,6 +168,8 @@ def _export_motchallenge_layout(
     export_stats: Dict[str, int] = {
         "gt_invalid_bbox_count": 0,
         "pred_invalid_bbox_count": 0,
+        "gt_duplicate_track_count": 0,
+        "pred_duplicate_track_count": 0,
     }
 
     for sample_id_raw, sample in samples:
@@ -138,12 +200,28 @@ def _export_motchallenge_layout(
                     valid_gt, ignore_gt = data_filter_fn(gt_entities, meta_data=sample.metadata)
                 else:
                     valid_gt = gt_entities
+                valid_gt, gt_duplicate_count = _resolve_duplicate_entities(
+                    valid_gt,
+                    duplicate_gt_policy,
+                    "gt",
+                    sample_id,
+                    frame_idx + 1,
+                )
+                export_stats["gt_duplicate_track_count"] += gt_duplicate_count
 
                 pred_entities = predicted_tracks.get_entities_for_frame_num(frame_idx)
                 if data_filter_fn is not None:
                     valid_pred, _ = data_filter_fn(pred_entities, ignore_gt)
                 else:
                     valid_pred = pred_entities
+                valid_pred, duplicate_count = _resolve_duplicate_entities(
+                    valid_pred,
+                    duplicate_pred_policy,
+                    "pred",
+                    sample_id,
+                    frame_idx + 1,
+                )
+                export_stats["pred_duplicate_track_count"] += duplicate_count
 
                 frame_number = frame_idx + 1
                 for entity in valid_gt:
@@ -216,6 +294,8 @@ def eval_hota(
     data_filter_fn: Optional[Callable[..., Any]] = None,
     keep_debug_files: bool = False,
     debug_dir: Optional[str] = None,
+    duplicate_gt_policy: str = "error",
+    duplicate_pred_policy: str = "error",
 ) -> Tuple[str, MetricsMap]:
     """
     Evaluate tracking using HOTA via the TrackEval package.
@@ -231,6 +311,8 @@ def eval_hota(
         temp_dir_manager = tempfile.TemporaryDirectory(prefix="siammot_hota_")
         tmp_dir = temp_dir_manager.name
     try:
+        duplicate_gt_policy = _normalize_policy(duplicate_gt_policy, "gt")
+        duplicate_pred_policy = _normalize_policy(duplicate_pred_policy, "pred")
         (
             gt_root,
             trackers_root,
@@ -238,9 +320,19 @@ def eval_hota(
             sequence_names,
             export_stats,
         ) = _export_motchallenge_layout(
-            samples, predicted_samples, data_filter_fn, tmp_dir
+            samples,
+            predicted_samples,
+            data_filter_fn,
+            tmp_dir,
+            duplicate_gt_policy,
+            duplicate_pred_policy,
         )
 
+        if export_stats["gt_duplicate_track_count"] > 0:
+            logger.warning(
+                "HOTA export collapsed %d duplicate GT boxes with repeated track ids in the same frame.",
+                export_stats["gt_duplicate_track_count"],
+            )
         if export_stats["gt_invalid_bbox_count"] > 0:
             logger.warning(
                 "HOTA export dropped %d GT boxes with invalid geometry/values.",
@@ -250,6 +342,11 @@ def eval_hota(
             logger.warning(
                 "HOTA export dropped %d predicted boxes with invalid geometry/values.",
                 export_stats["pred_invalid_bbox_count"],
+            )
+        if export_stats["pred_duplicate_track_count"] > 0:
+            logger.warning(
+                "HOTA export collapsed %d duplicate predicted boxes with repeated track ids in the same frame.",
+                export_stats["pred_duplicate_track_count"],
             )
 
         base_args = [

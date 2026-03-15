@@ -200,6 +200,27 @@ make baseline \
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
 In MLflow these runs are tagged with `stage=baseline_eval`.
 
+HOTA duplicate handling:
+1. By default, HOTA normalizes duplicate GT and prediction `(frame, track_id)` pairs with `keep_first` so baseline, fine-tuning, HPO, and final evaluation can all complete without extra flags.
+2. This is controlled by:
+   `INFERENCE.HOTA_DUPLICATE_GT_POLICY`
+   `INFERENCE.HOTA_DUPLICATE_PRED_POLICY`
+   Supported values: `error`, `keep_first`, `keep_highest_conf`
+3. The default baseline command therefore already runs with `keep_first` normalization:
+~~~bash
+make baseline \
+  TEST_SET=val \
+  EVAL_METRIC=hota
+~~~
+4. Use strict mode when you want to diagnose whether the raw tracker output is directly TrackEval-valid:
+~~~bash
+make baseline \
+  TEST_SET=val \
+  EVAL_METRIC=hota \
+  TEST_EXTRA_OPTS="INFERENCE.HOTA_DUPLICATE_PRED_POLICY error INFERENCE.HOTA_DUPLICATE_GT_POLICY error"
+~~~
+5. In normalized mode, duplicate predictions are collapsed only in the temporary MOT export used for TrackEval. The in-memory SIAMMOT results are not modified.
+
 ### 10. Fine-tune
 Train on `train` split:
 ~~~bash
