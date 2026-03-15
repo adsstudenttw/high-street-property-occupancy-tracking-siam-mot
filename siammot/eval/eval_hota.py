@@ -34,6 +34,30 @@ def _as_positive_track_id(track_id: Any, id_map: Dict[str, int]) -> int:
     return id_map[key]
 
 
+def _next_generated_track_id(sample: DataSample) -> int:
+    max_positive_id = 0
+    for entity in sample.entities:
+        try:
+            parsed = int(getattr(entity, "id", 0))
+        except (TypeError, ValueError):
+            continue
+        if parsed > max_positive_id:
+            max_positive_id = parsed
+    return max_positive_id + 1
+
+
+def _prediction_track_id(track_id: Any, next_track_id_state: Dict[str, int]) -> int:
+    try:
+        parsed = int(track_id)
+    except (TypeError, ValueError):
+        parsed = 0
+    if parsed > 0:
+        return parsed
+    generated_id = next_track_id_state["next_id"]
+    next_track_id_state["next_id"] += 1
+    return generated_id
+
+
 def _entity_bbox_xywh(entity: Any) -> Optional[Tuple[float, float, float, float]]:
     bbox = getattr(entity, "bbox", None)
     if bbox is None or len(bbox) < 4:
@@ -191,7 +215,7 @@ def _export_motchallenge_layout(
         _write_seqinfo(seqinfo_path, sample_id, sample)
 
         gt_id_map: Dict[str, int] = {}
-        pred_id_map: Dict[str, int] = {}
+        pred_next_id_state = {"next_id": _next_generated_track_id(predicted_tracks)}
         with open(gt_path, "w") as gt_file, open(pred_path, "w") as pred_file:
             for frame_idx in range(len(sample)):
                 gt_entities = sample.get_entities_for_frame_num(frame_idx)
@@ -241,7 +265,7 @@ def _export_motchallenge_layout(
                         continue
                     x, y, w, h = bbox
                     conf = _entity_confidence(entity)
-                    track_id = _as_positive_track_id(getattr(entity, "id", 0), pred_id_map)
+                    track_id = _prediction_track_id(getattr(entity, "id", 0), pred_next_id_state)
                     pred_file.write(
                         f"{frame_number},{track_id},{x:.3f},{y:.3f},{w:.3f},{h:.3f},{conf:.6f},-1,-1,-1\n"
                     )
