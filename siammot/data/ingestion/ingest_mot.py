@@ -4,10 +4,12 @@ import configparser
 import datetime
 import glob
 import os
+import pkg_resources
 
 from PIL import Image
 from pathlib import Path
 
+import gluoncv.torch.data.gluoncv_motion_dataset.dataset as motion_dataset_module
 from gluoncv.torch.data.gluoncv_motion_dataset.dataset import GluonCVMotionDataset, DataSample, AnnoEntity, FieldNames, SplitNames
 from gluoncv.torch.data.gluoncv_motion_dataset.utils.ingestion_utils import process_dataset_splits
 
@@ -28,6 +30,10 @@ MOT_LABEL_MAP = {
 }
 
 DET_OPTIONS = {"SDP", "FRCNN", "DPM"}
+
+
+if not hasattr(motion_dataset_module, "__version__"):
+    motion_dataset_module.__version__ = pkg_resources.get_distribution("gluoncv").version
 
 
 def _parse_bool(value):
