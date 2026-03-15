@@ -208,6 +208,7 @@ make visualize-baseline \
 
 This writes annotated frames to:
 `"${HOST_STORAGE_ROOT}/artifacts/baseline/visualizations/<sequence-id>"`
+The visualizer automatically finds prediction JSON files under `${HOST_STORAGE_ROOT}/artifacts/baseline/<model_name>/`.
 Prediction boxes are drawn in orange and labeled with `P ...`; ground-truth boxes are drawn in green and labeled with `GT ...`.
 
 HOTA duplicate handling:

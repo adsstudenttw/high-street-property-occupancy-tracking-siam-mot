@@ -1,4 +1,5 @@
 import argparse
+import glob
 import os
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -78,7 +79,20 @@ def parse_args() -> argparse.Namespace:
 def resolve_predictions_json(sequence_id: str, predictions_json: str, predictions_dir: str) -> str:
     if predictions_json:
         return predictions_json
-    return os.path.join(predictions_dir, "{}.json".format(sequence_id))
+
+    direct_path = os.path.join(predictions_dir, "{}.json".format(sequence_id))
+    if os.path.isfile(direct_path):
+        return direct_path
+
+    recursive_pattern = os.path.join(predictions_dir, "**", "{}.json".format(sequence_id))
+    matches = sorted(glob.glob(recursive_pattern, recursive=True))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise FileExistsError(
+            "Found multiple prediction JSON files for '{}': {}".format(sequence_id, matches)
+        )
+    return direct_path
 
 
 def resolve_split_and_img_dir(dataset_root: str, sequence_id: str, split: str) -> Tuple[str, str]:
