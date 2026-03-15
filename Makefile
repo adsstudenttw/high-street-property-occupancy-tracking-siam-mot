@@ -55,6 +55,15 @@ MODEL_FILE ?=
 BASELINE_MODEL_FILE ?= $(CONTAINER_WEIGHTS_DIR)/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 FINE_TUNE_MODEL_FILE ?= $(TRAIN_ARTIFACT_DIR)/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth
 TEST_EXTRA_OPTS ?=
+VIS_SEQUENCE_IDS ?=
+VIS_PREDICTIONS_DIR ?= $(BASELINE_ARTIFACT_DIR)
+VIS_OUTPUT_DIR ?= $(BASELINE_ARTIFACT_DIR)/visualizations
+VIS_SPLIT ?=
+VIS_FRAME_START ?= 0
+VIS_FRAME_END ?= -1
+VIS_MAX_FRAMES ?= 0
+VIS_WITH_GT ?= true
+VIS_ONLY_WITH_BOXES ?= false
 
 BASE_MODEL_FILE ?= $(CONTAINER_WEIGHTS_DIR)/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 BEST_TRIAL_FILE ?= $(HPO_ARTIFACT_DIR)/best_trial.json
@@ -91,7 +100,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 
 .PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
 	verify-docker-cpu smoke-cpu smoke-mlflow ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
-	ensure-storage-dirs print-storage-config verify-docker-root verify-containerd-root verify-storage-root
+	ensure-storage-dirs print-storage-config verify-docker-root verify-containerd-root verify-storage-root visualize-baseline
 
 help: ## Show available targets.
 	@grep -E '^[a-zA-Z0-9_.-]+:.*## ' Makefile | awk 'BEGIN {FS=":.*## "}; {printf "%-24s %s\n", $$1, $$2}'
@@ -226,6 +235,11 @@ test: ensure-storage-dirs ## Evaluate with tools/test_net.py (set MODEL_FILE and
 test-best-hpo: ensure-storage-dirs ## Evaluate the best trial checkpoint from HPO on the final split.
 	mkdir -p "$(HOST_BEST_HPO_EVAL_ARTIFACT_DIR)"
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_best_hpo.py --project-root . --config-file $(CONFIG_FILE) --best-trial-file $(BEST_TRIAL_FILE) --output-dir $(BEST_HPO_EVAL_ARTIFACT_DIR) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --test-split $(BEST_HPO_TEST_SET) --eval-metric $(EVAL_METRIC) $(if $(BEST_HPO_MODEL_FILE),--model-file $(BEST_HPO_MODEL_FILE),) --base-opts $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
+
+visualize-baseline: ensure-storage-dirs ## Render saved baseline prediction boxes on top of sequence frames.
+	@if [ -z "$(VIS_SEQUENCE_IDS)" ]; then echo "VIS_SEQUENCE_IDS is required, e.g. make visualize-baseline VIS_SEQUENCE_IDS='achter_clarenburg_ls choorstraat_2_ls'"; exit 1; fi
+	mkdir -p "$(HOST_BASELINE_ARTIFACT_DIR)/visualizations"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/visualize_predictions.py --sequence-id $(VIS_SEQUENCE_IDS) --predictions-dir $(VIS_PREDICTIONS_DIR) --dataset-root $(CONTAINER_DATASETS_DIR)/hspot --output-dir $(VIS_OUTPUT_DIR) --frame-start $(VIS_FRAME_START) --frame-end $(VIS_FRAME_END) --max-frames $(VIS_MAX_FRAMES) $(if $(VIS_SPLIT),--split $(VIS_SPLIT),) $(if $(filter true,$(VIS_WITH_GT)),--with-gt,) $(if $(filter true,$(VIS_ONLY_WITH_BOXES)),--only-with-boxes,)"
 
 tune: ensure-storage-dirs ## Run Optuna HPO (set BASE_MODEL_FILE).
 	@if [ -z "$(BASE_MODEL_FILE)" ]; then echo "BASE_MODEL_FILE is required, e.g. make tune BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"; exit 1; fi

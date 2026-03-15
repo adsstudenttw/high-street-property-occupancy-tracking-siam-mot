@@ -200,13 +200,10 @@ make baseline \
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
 In MLflow these runs are tagged with `stage=baseline_eval`.
 
-Render saved prediction boxes on top of the original sequence frames:
+Render saved prediction boxes on top of the original sequence frames from inside the project container:
 ~~~bash
-python tools/visualize_predictions.py \
-  --sequence-id achter_clarenburg_ls choorstraat_2_ls vredenburg_ls \
-  --predictions-dir "${HOST_STORAGE_ROOT}/artifacts/baseline" \
-  --dataset-root "${HOST_STORAGE_ROOT}/datasets/hspot" \
-  --with-gt
+make visualize-baseline \
+  VIS_SEQUENCE_IDS="achter_clarenburg_ls choorstraat_2_ls vredenburg_ls"
 ~~~
 
 This writes annotated frames to:
