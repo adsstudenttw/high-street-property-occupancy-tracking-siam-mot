@@ -91,7 +91,7 @@ def _export_motchallenge_layout(
     predicted_samples: PredictedSamples,
     data_filter_fn: Optional[Callable[..., Any]],
     root_dir: str,
-) -> Tuple[str, str, str, str, Dict[str, int]]:
+) -> Tuple[str, str, str, Sequence[str], Dict[str, int]]:
     split_name = f"{HOTA_BENCHMARK}-{HOTA_SPLIT}"
 
     gt_root = os.path.join(root_dir, "gt")
@@ -168,15 +168,7 @@ def _export_motchallenge_layout(
                         f"{frame_number},{track_id},{x:.3f},{y:.3f},{w:.3f},{h:.3f},{conf:.6f},-1,-1,-1\n"
                     )
 
-    seqmap_dir = os.path.join(gt_root, "seqmaps")
-    os.makedirs(seqmap_dir, exist_ok=True)
-    seqmap_file = os.path.join(seqmap_dir, f"{split_name}.txt")
-    with open(seqmap_file, "w") as f:
-        f.write("name\n")
-        for seq_name in sequence_names:
-            f.write(f"{seq_name}\n")
-
-    return gt_root, trackers_root, output_root, seqmap_file, export_stats
+    return gt_root, trackers_root, output_root, sequence_names, export_stats
 
 
 def _parse_summary_file(path: str) -> MetricsMap:
@@ -239,7 +231,13 @@ def eval_hota(
         temp_dir_manager = tempfile.TemporaryDirectory(prefix="siammot_hota_")
         tmp_dir = temp_dir_manager.name
     try:
-        gt_root, trackers_root, output_root, seqmap_file, export_stats = _export_motchallenge_layout(
+        (
+            gt_root,
+            trackers_root,
+            output_root,
+            sequence_names,
+            export_stats,
+        ) = _export_motchallenge_layout(
             samples, predicted_samples, data_filter_fn, tmp_dir
         )
 
@@ -265,8 +263,6 @@ def eval_hota(
             HOTA_BENCHMARK,
             "--SPLIT_TO_EVAL",
             HOTA_SPLIT,
-            "--SEQMAP_FILE",
-            seqmap_file,
             "--TRACKERS_TO_EVAL",
             HOTA_TRACKER_NAME,
             "--CLASSES_TO_EVAL",
@@ -282,6 +278,11 @@ def eval_hota(
             "--PLOT_CURVES",
             "False",
         ]
+        # Vendored TrackEval's CLI parses None-default args with nargs='+', so
+        # passing --SEQMAP_FILE produces a list and later crashes in os.path.isfile.
+        # --SEQ_INFO is the stable path here: TrackEval turns it into a dict and
+        # reads per-sequence lengths from the seqinfo.ini files we already export.
+        base_args.extend(["--SEQ_INFO", *sequence_names])
 
         vendored_root, vendored_script = _resolve_vendored_trackeval()
         env = os.environ.copy()
