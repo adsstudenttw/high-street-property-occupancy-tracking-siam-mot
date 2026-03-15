@@ -90,7 +90,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 	-w $(WORKDIR)
 
 .PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
-	verify-docker-cpu smoke-cpu ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
+	verify-docker-cpu smoke-cpu smoke-mlflow ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
 	ensure-storage-dirs print-storage-config verify-docker-root verify-containerd-root verify-storage-root
 
 help: ## Show available targets.
@@ -198,6 +198,10 @@ smoke-cpu: DEVICE=cpu
 smoke-cpu: ensure-storage-dirs ## Run a CPU-only smoke test (no dataset required).
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python -c 'import torch; print(\"torch\", torch.__version__); print(\"cuda_available\", torch.cuda.is_available())'"
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/train_net.py --help > /tmp/train_help.txt && python tools/test_net.py --help > /tmp/test_help.txt && python tools/tune_optuna.py --help > /tmp/tune_help.txt && echo smoke_ok"
+
+smoke-mlflow: GPU=none
+smoke-mlflow: ensure-storage-dirs ## Validate MLflow connectivity and artifact logging against MLFLOW_TRACKING_URI.
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/mlflow_smoke_test.py"
 
 ingest: ensure-storage-dirs ## Ingest custom MOT dataset from DATASET_PATH.
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python siammot/data/ingestion/ingest_mot.py --dataset_path $(DATASET_PATH) --anno_name $(ANNO_NAME) --mot17 $(MOT17) --det-options \"$(DET_OPTIONS)\""

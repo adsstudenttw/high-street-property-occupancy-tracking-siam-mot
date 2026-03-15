@@ -169,6 +169,13 @@ export MLFLOW_TRACKING_URI=http://<MLFLOW_VM_IP_OR_HOST>:5000
 
 All `make` targets pass this environment variable into the container.
 
+Run the dedicated MLflow smoke test before training if you want to validate remote logging end to end:
+~~~bash
+make smoke-mlflow
+~~~
+
+It creates a short run under experiment `remote-mlflow-smoke-test`, logs one metric and one text artifact, then prints the run ID.
+
 ### 8. TrackEval Status
 TrackEval is already vendored in this repository under `third_party/TrackEval`.
 If you want to update it later:
@@ -352,6 +359,7 @@ make print-storage-config
 ~~~bash
 make verify-docker-cpu
 make smoke-cpu
+make smoke-mlflow
 ~~~
 
 ### 6. Prepare Dataset and Weights
