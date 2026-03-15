@@ -2,14 +2,26 @@ import os
 import socket
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import mlflow
+
+
+def _validate_tracking_uri(tracking_uri: str) -> None:
+    hostname = urlparse(tracking_uri).hostname
+    if hostname in {"127.0.0.1", "localhost", "::1"}:
+        raise RuntimeError(
+            "MLFLOW_TRACKING_URI points to loopback inside the container. "
+            "Set it to the reachable hostname or IP of your MLflow server, for example "
+            "'make smoke-mlflow MLFLOW_TRACKING_URI=http://<mlflow-host>:5000'."
+        )
 
 
 def main() -> None:
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
     if not tracking_uri:
         raise RuntimeError("MLFLOW_TRACKING_URI must be set")
+    _validate_tracking_uri(tracking_uri)
 
     vm_name = socket.gethostname()
     experiment_name = "remote-mlflow-smoke-test"

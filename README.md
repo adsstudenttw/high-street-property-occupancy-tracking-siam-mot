@@ -167,7 +167,9 @@ Point jobs to your separate MLflow VM:
 export MLFLOW_TRACKING_URI=http://ubuntu2204sudo.property-occupa.src.surf-hosted.nl
 ~~~
 
-All `make` targets pass this environment variable into the container.
+All `make` targets pass this environment variable into the container. Do not leave it at
+`127.0.0.1` for Docker runs unless the MLflow server is actually running inside that same
+container, because loopback inside Docker points back to the container itself.
 
 Run the dedicated MLflow smoke test before training if you want to validate remote logging end to end:
 ~~~bash

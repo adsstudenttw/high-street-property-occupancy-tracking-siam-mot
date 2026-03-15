@@ -27,6 +27,13 @@ def _flatten_dict(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
     return flat
 
 
+def _resolve_tracking_uri(cfg) -> str:
+    env_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+    if env_tracking_uri:
+        return env_tracking_uri
+    return str(cfg.MLFLOW.TRACKING_URI).strip()
+
+
 class MLflowLogger(object):
     def __init__(self, cfg, logger: Optional[logging.Logger] = None):
         self._cfg = cfg
@@ -47,7 +54,7 @@ class MLflowLogger(object):
                 ) from exc
             self._mlflow = mlflow
 
-            tracking_uri = str(self._cfg.MLFLOW.TRACKING_URI).strip()
+            tracking_uri = _resolve_tracking_uri(self._cfg)
             if tracking_uri:
                 self._mlflow.set_tracking_uri(tracking_uri)
 
