@@ -291,8 +291,13 @@ def _parse_summary_file(path: str) -> MetricsMap:
     return metrics
 
 
-def _expected_hota_summary_file(output_root: str) -> str:
-    return os.path.join(output_root, HOTA_TRACKER_NAME, f"{HOTA_CLASS_NAME}_summary.txt")
+def _expected_hota_summary_file(trackers_root: str) -> str:
+    return os.path.join(
+        trackers_root,
+        f"{HOTA_BENCHMARK}-{HOTA_SPLIT}",
+        HOTA_TRACKER_NAME,
+        f"{HOTA_CLASS_NAME}_summary.txt",
+    )
 
 
 def _project_root() -> str:
@@ -378,8 +383,6 @@ def eval_hota(
             gt_root,
             "--TRACKERS_FOLDER",
             trackers_root,
-            "--OUTPUT_FOLDER",
-            output_root,
             "--BENCHMARK",
             HOTA_BENCHMARK,
             "--SPLIT_TO_EVAL",
@@ -433,7 +436,7 @@ def eval_hota(
                 )
             )
 
-        summary_file = _expected_hota_summary_file(output_root)
+        summary_file = _expected_hota_summary_file(trackers_root)
         if not os.path.isfile(summary_file):
             raise RuntimeError(
                 "TrackEval completed but expected summary file was not found: {}\n"
