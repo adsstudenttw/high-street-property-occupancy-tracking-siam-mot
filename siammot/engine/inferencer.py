@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
@@ -19,6 +20,14 @@ from ..eval.eval_hota import eval_hota
 MetricsMap = Dict[str, float]
 InferenceResult = Dict[str, Any]
 DatasetEntries = Sequence[Tuple[Any, DataSample]]
+
+
+def _sanitize_hota_metric_name(name: str) -> str:
+    sanitized = re.sub(r"[^0-9A-Za-z_.:\-/ ]+", "_", name.strip().lower())
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    if not sanitized:
+        raise ValueError("Unable to sanitize HOTA metric name '{}'".format(name))
+    return sanitized
 
 
 def do_inference(
@@ -234,7 +243,12 @@ class DatasetInference(object):
         inference_time = time.time() - start_time
         metrics: MetricsMap = {}
         metrics.update({f"infer/mot/{k}": v for k, v in clear_metrics.items()})
-        metrics.update({f"infer/mot/hota/{k.lower()}": v for k, v in hota_metrics.items()})
+        metrics.update(
+            {
+                f"infer/mot/hota/{_sanitize_hota_metric_name(k)}": v
+                for k, v in hota_metrics.items()
+            }
+        )
         if "HOTA" in hota_metrics:
             metrics["infer/mot/hota"] = hota_metrics["HOTA"]
         metrics["infer/total_frames"] = float(total_frames)
