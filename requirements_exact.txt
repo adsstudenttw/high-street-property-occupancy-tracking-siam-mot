@@ -1,5 +1,6 @@
 numpy==1.22.0
 gluoncv==0.10.0
+addict==2.4.0
 motmetrics==1.2.0
 timm==0.4.5
 tqdm==4.59.0
