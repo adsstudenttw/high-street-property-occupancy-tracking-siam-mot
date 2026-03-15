@@ -187,8 +187,13 @@ def draw_entities(
 
 def load_ground_truth_sample(dataset_root: str, sequence_id: str, split: str) -> DataSample:
     dataset = load_motion_anno(dataset_root, "anno.json", "splits.json", set=split)
-    for sample in dataset:
-        if sample.id == sequence_id:
+    for entry in dataset:
+        if isinstance(entry, tuple) and len(entry) >= 2:
+            sample_id, sample = entry[0], entry[1]
+        else:
+            sample = entry
+            sample_id = getattr(sample, "id", None)
+        if str(sample_id) == sequence_id:
             return sample
     raise KeyError(
         "Sequence '{}' was not found in annotation/anno.json for split '{}'.".format(
