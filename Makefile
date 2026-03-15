@@ -10,7 +10,7 @@ WORKDIR ?= /workspace
 
 GPU ?= all
 SHM_SIZE ?= 16g
-MLFLOW_TRACKING_URI ?= http://ubuntu2204sudo.property-occupa.src.surf-hosted.nl
+MLFLOW_TRACKING_URI ?= http://ubuntu2204sudo.property-occupa.src.surf-hosted.nl:80
 DEVICE ?= cuda
 
 CONFIG_FILE ?= configs/dla/DLA_34_FPN_EMM_HSPOT.yaml

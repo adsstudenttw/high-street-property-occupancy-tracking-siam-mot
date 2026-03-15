@@ -164,7 +164,7 @@ Notes:
 ### 7. Configure MLflow Tracking URI
 Point jobs to your separate MLflow VM:
 ~~~bash
-export MLFLOW_TRACKING_URI=http://ubuntu2204sudo.property-occupa.src.surf-hosted.nl
+export MLFLOW_TRACKING_URI=http://ubuntu2204sudo.property-occupa.src.surf-hosted.nl:80
 ~~~
 
 All `make` targets pass this environment variable into the container. Do not leave it at
