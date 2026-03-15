@@ -193,7 +193,7 @@ Establish a pre-training baseline on `val` before any HSPOT fine-tuning:
 ~~~bash
 make baseline \
   TEST_SET=val \
-  EVAL_METRIC=both
+  EVAL_METRIC=hota
 ~~~
 
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
@@ -223,7 +223,7 @@ Validation evaluation:
 ~~~bash
 make test-finetune \
   TEST_SET=val \
-  EVAL_METRIC=both
+  EVAL_METRIC=hota
 ~~~
 
 In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
@@ -266,7 +266,7 @@ Run the final test evaluation explicitly with the dedicated Make target:
 ~~~bash
 make test-best-hpo \
   BEST_HPO_TEST_SET=test \
-  EVAL_METRIC=both
+  EVAL_METRIC=hota
 ~~~
 
 By default this evaluates:
@@ -375,9 +375,9 @@ make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=fal
 
 ### 7. CPU Baseline, Train, and Eval Commands
 ~~~bash
-make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
+make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=hota
 make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
-make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
+make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=hota
 ~~~
 
 ### 8. Optional Tiny CPU HPO Smoke Run
