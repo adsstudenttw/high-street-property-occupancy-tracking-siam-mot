@@ -119,6 +119,7 @@ Notes:
 8. The Docker build preinstalls the legacy `numpy`/`Pillow` values and `cython`, then installs `requirements.txt` with `--no-build-isolation`, so older source builds such as `pycocotools==2.0.2` can complete under `uv`.
 9. `pycocotools` is installed from `cocoapi/PythonAPI` in the image, following the upstream `maskrcnn-benchmark` install guide, because the old `pycocotools==2.0.2` sdist does not build reliably under `uv`.
 10. `protobuf` is capped at `3.20.3` because older `tensorboard` code in this stack breaks with newer protobuf descriptor changes.
+11. `maskrcnn-benchmark` is built with `FORCE_CUDA=1` and `TORCH_CUDA_ARCH_LIST=8.0+PTX`; CUDA 11.0 cannot compile `sm_86` directly, so this keeps the image compatible with Ampere A10 hosts via PTX JIT.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
 Set the host-side storage root to your mounted SURF volume path:

@@ -1,7 +1,7 @@
 FROM nvidia/cuda:11.0.3-cudnn8-devel-ubuntu20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG TORCH_CUDA_ARCH_LIST="8.6"
+ARG TORCH_CUDA_ARCH_LIST="8.0+PTX"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   bash \
@@ -33,7 +33,8 @@ COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 # Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
 # Build maskrcnn-benchmark with FORCE_CUDA=1 because docker build does not expose the host GPU,
 # and its setup.py otherwise falls back to CPU-only custom ops. Also set TORCH_CUDA_ARCH_LIST so
-# torch does not try to query a live GPU for architecture detection during docker build.
+# torch does not try to query a live GPU for architecture detection during docker build. CUDA 11.0
+# cannot target sm_86 directly, so use an Ampere-compatible 8.0+PTX build that can JIT on the A10.
 # Apex is pinned to a torch==1.7.1+cu110-compatible revision instead of current HEAD.
 # Patch a couple of newer Apex Torch API checks so `import apex` still works on Torch 1.7.1.
 RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
