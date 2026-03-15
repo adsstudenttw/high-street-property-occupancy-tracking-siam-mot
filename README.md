@@ -200,6 +200,19 @@ make baseline \
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
 In MLflow these runs are tagged with `stage=baseline_eval`.
 
+Render saved prediction boxes on top of the original sequence frames:
+~~~bash
+python tools/visualize_predictions.py \
+  --sequence-id achter_clarenburg_ls choorstraat_2_ls vredenburg_ls \
+  --predictions-dir "${HOST_STORAGE_ROOT}/artifacts/baseline" \
+  --dataset-root "${HOST_STORAGE_ROOT}/datasets/hspot" \
+  --with-gt
+~~~
+
+This writes annotated frames to:
+`"${HOST_STORAGE_ROOT}/artifacts/baseline/visualizations/<sequence-id>"`
+Prediction boxes are drawn in orange and labeled with `P ...`; ground-truth boxes are drawn in green and labeled with `GT ...`.
+
 HOTA duplicate handling:
 1. By default, HOTA normalizes duplicate GT and prediction `(frame, track_id)` pairs with `keep_first` so baseline, fine-tuning, HPO, and final evaluation can all complete without extra flags.
 2. This is controlled by:
