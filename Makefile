@@ -16,8 +16,8 @@ DEVICE ?= cuda
 CONFIG_FILE ?= configs/dla/DLA_34_FPN_EMM_HSPOT.yaml
 DATASET_KEY ?= MOT_HSPOT
 
-# Host-side storage locations (set HOST_STORAGE_ROOT to your mounted SURF volume).
-HOST_STORAGE_ROOT ?= $(PROJECT_ROOT)
+# Host-side storage locations.
+HOST_STORAGE_ROOT ?= /data/siammot_storage/siammot
 HOST_DATASETS_DIR ?= $(HOST_STORAGE_ROOT)/datasets
 HOST_WEIGHTS_DIR ?= $(HOST_STORAGE_ROOT)/weights
 HOST_ARTIFACT_ROOT ?= $(HOST_STORAGE_ROOT)/artifacts

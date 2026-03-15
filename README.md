@@ -122,9 +122,9 @@ Notes:
 11. `maskrcnn-benchmark` is built with `FORCE_CUDA=1` and `TORCH_CUDA_ARCH_LIST=8.0+PTX`; CUDA 11.0 cannot compile `sm_86` directly, so this keeps the image compatible with Ampere A10 hosts via PTX JIT.
 
 ### 5. Put Datasets, Weights, and Artifacts on the SURF Volume
-Set the host-side storage root to your mounted SURF volume path:
+The default host-side storage root is:
 ~~~bash
-export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
+/data/siammot_storage/siammot
 ~~~
 
 Create required host-side root directories:
@@ -374,7 +374,6 @@ make docker-build
 
 ### 4. Configure SURF Volume Storage
 ~~~bash
-export HOST_STORAGE_ROOT=/data/siammot_storage/siammot
 make ensure-storage-dirs
 make print-storage-config
 ~~~
