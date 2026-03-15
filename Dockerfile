@@ -30,6 +30,8 @@ COPY docker/entrypoint.sh /usr/local/bin/siammot-entrypoint.sh
 
 # Follow SiamMOT INSTALL.md ordering: torch/torchvision first, then requirements.txt.
 # Match the container CUDA toolkit to PyTorch cu110 so Apex can build its CUDA extensions.
+# Build maskrcnn-benchmark with FORCE_CUDA=1 because docker build does not expose the host GPU,
+# and its setup.py otherwise falls back to CPU-only custom ops.
 # Apex is pinned to a torch==1.7.1+cu110-compatible revision instead of current HEAD.
 # Patch a couple of newer Apex Torch API checks so `import apex` still works on Torch 1.7.1.
 RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
@@ -54,7 +56,7 @@ RUN chmod +x /usr/local/bin/siammot-entrypoint.sh && \
   git clone --depth 1 https://github.com/facebookresearch/maskrcnn-benchmark.git /opt/src/maskrcnn-benchmark && \
   cuda_dir="/opt/src/maskrcnn-benchmark/maskrcnn_benchmark/csrc/cuda" && \
   perl -i -pe 's/AT_CHECK/TORCH_CHECK/' "$cuda_dir/deform_pool_cuda.cu" "$cuda_dir/deform_conv_cuda.cu" && \
-  bash -lc "cd /opt/src/maskrcnn-benchmark && /opt/venv/bin/python setup.py build develop" && \
+  bash -lc "cd /opt/src/maskrcnn-benchmark && FORCE_CUDA=1 /opt/venv/bin/python setup.py build develop" && \
   PATH="/opt/venv/bin:${PATH}" APEX_CPP_EXT=1 APEX_CUDA_EXT=1 uv pip install --python /opt/venv/bin/python \
   --no-build-isolation \
   git+https://github.com/NVIDIA/apex.git@da9f5ae && \
