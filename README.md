@@ -212,12 +212,12 @@ The visualizer automatically finds prediction JSON files under `${HOST_STORAGE_R
 Prediction boxes are drawn in orange and labeled with `P ...`; ground-truth boxes are drawn in green and labeled with `GT ...`.
 
 HOTA duplicate handling:
-1. By default, HOTA normalizes duplicate GT and prediction `(frame, track_id)` pairs with `keep_first` so baseline, fine-tuning, HPO, and final evaluation can all complete without extra flags.
+1. By default, HOTA normalizes duplicate GT and prediction `(frame, track_id)` pairs with `keep_highest_conf`. If confidences tie, the first occurrence is kept. This lets baseline, fine-tuning, HPO, and final evaluation complete without extra flags.
 2. This is controlled by:
    `INFERENCE.HOTA_DUPLICATE_GT_POLICY`
    `INFERENCE.HOTA_DUPLICATE_PRED_POLICY`
    Supported values: `error`, `keep_first`, `keep_highest_conf`
-3. The default baseline command therefore already runs with `keep_first` normalization:
+3. The default baseline command therefore already runs with `keep_highest_conf` normalization:
 ~~~bash
 make baseline \
   TEST_SET=val \
