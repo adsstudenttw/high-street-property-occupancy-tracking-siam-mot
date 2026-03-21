@@ -4,6 +4,7 @@ import itertools
 import torch.utils.data as data
 from tqdm import tqdm
 from collections import defaultdict
+from collections.abc import Mapping
 from PIL.Image import Image
 
 from maskrcnn_benchmark.structures.image_list import to_image_list
@@ -13,6 +14,34 @@ from gluoncv.torch.data.gluoncv_motion_dataset.dataset import GluonCVMotionDatas
 
 
 class VideoDataset(data.Dataset):
+
+    @staticmethod
+    def _normalize_samples(dataset):
+        if isinstance(dataset, Mapping):
+            sample_items = dataset.items()
+        elif hasattr(dataset, "train_samples"):
+            sample_items = dataset.train_samples
+        else:
+            sample_items = dataset
+
+        normalized = {}
+        for entry in sample_items:
+            if isinstance(entry, tuple) and len(entry) >= 2:
+                sample_id, sample = entry[0], entry[1]
+            else:
+                sample = entry
+                sample_id = getattr(sample, "id", None)
+
+            if sample_id is None:
+                raise ValueError(
+                    "VideoDataset expects samples with an explicit sample id, got '{}'".format(
+                        type(entry).__name__
+                    )
+                )
+
+            normalized[sample_id] = sample
+
+        return normalized
 
     def __init__(self, dataset: GluonCVMotionDataset, sampling_interval=250, clip_len=1000,
                  is_train=True, frames_in_clip=2, transforms=None, filter_fn=None,
@@ -34,7 +63,7 @@ class VideoDataset(data.Dataset):
         assert is_train is True, "The dataset class only supports training"
         assert (2 >= frames_in_clip > 0), "frames_in_clip has to be 1 or 2"
 
-        self.data = dict(dataset.train_samples)
+        self.data = self._normalize_samples(dataset)
 
         self.clip_len = clip_len
         self.transforms = transforms
