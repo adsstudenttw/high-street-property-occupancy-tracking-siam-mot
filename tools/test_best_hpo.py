@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-split", default="test", type=str)
     parser.add_argument("--eval-metric", default="both", choices=["clear", "hota", "both"])
     parser.add_argument(
+        "--run-name",
+        default="",
+        type=str,
+        help="Optional explicit MLflow inference run name.",
+    )
+    parser.add_argument(
         "--model-file",
         default="",
         type=str,
@@ -113,6 +119,13 @@ def main() -> None:
             args.eval_metric,
         ]
     )
+    if str(args.run_name).strip():
+        test_opts.extend(
+            [
+                "MLFLOW.INFERENCE_RUN_NAME",
+                str(args.run_name).strip(),
+            ]
+        )
 
     cmd: Sequence[str] = [
         sys.executable,
