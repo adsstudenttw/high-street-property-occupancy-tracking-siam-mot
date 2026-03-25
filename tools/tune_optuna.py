@@ -26,14 +26,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-key", default="MOT_HSPOT", type=str)
     parser.add_argument("--train-split", default="train", type=str)
     parser.add_argument("--val-split", default="val", type=str)
-    parser.add_argument("--eval-metric", default="clear", choices=["clear", "hota", "both"])
-    parser.add_argument("--direction", default="maximize", choices=["maximize", "minimize"])
+    parser.add_argument(
+        "--eval-metric", default="clear", choices=["clear", "hota", "both"]
+    )
+    parser.add_argument(
+        "--direction", default="maximize", choices=["maximize", "minimize"]
+    )
     parser.add_argument("--n-trials", default=30, type=int)
     parser.add_argument("--timeout-sec", default=360000, type=int)
-    parser.add_argument("--max-iter", default=1800, type=int)
+    parser.add_argument("--max-iter", default=2000, type=int)
     parser.add_argument(
         "--prune-checkpoints",
-        default="450,1100",
+        default="600,1400",
         type=str,
         help="Comma-separated iteration checkpoints used for intermediate pruning reports",
     )
@@ -143,7 +147,9 @@ def hpo_trial_run_name(run_name_prefix: str, trial_number: int) -> str:
     return "{}_trial_{:04d}".format(prefix, trial_number)
 
 
-def run_command(cmd: Sequence[str], cwd: str, env: Dict[str, str], log_path: str) -> None:
+def run_command(
+    cmd: Sequence[str], cwd: str, env: Dict[str, str], log_path: str
+) -> None:
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     printable_cmd = " ".join(shlex.quote(part) for part in cmd)
     print("\n[run] {}\n".format(printable_cmd))
@@ -257,15 +263,15 @@ def build_context(args: argparse.Namespace) -> TuningContext:
     if not os.path.isfile(config_file):
         raise FileNotFoundError("Missing config file: {}".format(config_file))
     if not os.path.isfile(args.base_model_file):
-        raise FileNotFoundError("Missing --base-model-file: {}".format(args.base_model_file))
+        raise FileNotFoundError(
+            "Missing --base-model-file: {}".format(args.base_model_file)
+        )
 
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
     py_path = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
-        "{}{}{}".format(project_root, os.pathsep, py_path)
-        if py_path
-        else project_root
+        "{}{}{}".format(project_root, os.pathsep, py_path) if py_path else project_root
     )
 
     common_data_cfg = {
@@ -300,7 +306,9 @@ def build_context(args: argparse.Namespace) -> TuningContext:
 
 def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
     args = context.args
-    trial_dir = os.path.join(os.path.abspath(args.output_dir), "trials", "trial_{:04d}".format(trial.number))
+    trial_dir = os.path.join(
+        os.path.abspath(args.output_dir), "trials", "trial_{:04d}".format(trial.number)
+    )
     train_root = os.path.join(trial_dir, "train")
     eval_root = os.path.join(trial_dir, "eval")
     logs_root = os.path.join(trial_dir, "logs")
@@ -325,7 +333,9 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
             stage_name,
         )
 
-        stage_run_info_path = os.path.join(trial_dir, "run_info_{}.json".format(stage_name))
+        stage_run_info_path = os.path.join(
+            trial_dir, "run_info_{}.json".format(stage_name)
+        )
         stage_train_cfg = {
             "SOLVER.MAX_ITER": stage_iter,
             "MODEL.WEIGHT": current_model_file,
@@ -364,11 +374,15 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
         final_checkpoint = str(run_info.get("final_checkpoint", "")).strip()
         if not final_checkpoint or not os.path.isfile(final_checkpoint):
             raise FileNotFoundError(
-                "Could not find final checkpoint for {}: {}".format(stage_name, final_checkpoint)
+                "Could not find final checkpoint for {}: {}".format(
+                    stage_name, final_checkpoint
+                )
             )
         current_model_file = final_checkpoint
 
-        stage_metrics_path = os.path.join(trial_dir, "metrics_{}.json".format(stage_name))
+        stage_metrics_path = os.path.join(
+            trial_dir, "metrics_{}.json".format(stage_name)
+        )
         test_opts = combine_opts(
             base_opts,
             cfg_dict_to_opts(context.common_eval_cfg),
@@ -441,7 +455,9 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
         ):
             trial.set_user_attr("stopped_early_at_iter", stage_iter)
             raise optuna.TrialPruned(
-                "Early stopping: no improvement for {} stage(s)".format(non_improve_stages)
+                "Early stopping: no improvement for {} stage(s)".format(
+                    non_improve_stages
+                )
             )
         if trial.should_prune():
             trial.set_user_attr("pruned_at_iter", stage_iter)
@@ -466,7 +482,9 @@ def dump_study_summary(study: optuna.study.Study, output_dir: str) -> None:
                 "user_attrs": trial.user_attrs,
             }
         )
-    with open(os.path.join(output_dir, "study_trials.json"), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(output_dir, "study_trials.json"), "w", encoding="utf-8"
+    ) as f:
         json.dump(trials_payload, f, indent=2, sort_keys=True)
 
     best_trial = study.best_trial

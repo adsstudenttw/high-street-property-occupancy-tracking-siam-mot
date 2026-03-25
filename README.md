@@ -270,7 +270,7 @@ Run HPO:
 make tune \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
   EVAL_METRIC=hota \
-  N_TRIALS=15 \
+  N_TRIALS=30 \
   MAX_ITER=2000 \
   PRUNE_CHECKPOINTS=600,1400 \
   HPO_TRAIN_SPLIT=train \
