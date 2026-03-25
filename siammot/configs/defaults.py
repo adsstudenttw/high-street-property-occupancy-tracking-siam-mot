@@ -99,8 +99,12 @@ cfg.INFERENCE.MIN_TRACK_LENGTH = 5
 cfg.INFERENCE.EVAL_METRIC = "clear"  # options: clear, hota, both
 cfg.INFERENCE.HOTA_KEEP_DEBUG_FILES = False
 cfg.INFERENCE.HOTA_DEBUG_DIR = ""
-cfg.INFERENCE.HOTA_DUPLICATE_GT_POLICY = "keep_highest_conf"  # options: error, keep_first, keep_highest_conf
-cfg.INFERENCE.HOTA_DUPLICATE_PRED_POLICY = "keep_highest_conf"  # options: error, keep_first, keep_highest_conf
+cfg.INFERENCE.HOTA_DUPLICATE_GT_POLICY = (
+    "keep_highest_conf"  # options: error, keep_first, keep_highest_conf
+)
+cfg.INFERENCE.HOTA_DUPLICATE_PRED_POLICY = (
+    "keep_highest_conf"  # options: error, keep_first, keep_highest_conf
+)
 
 # Solver
 cfg.SOLVER.CHECKPOINT_PERIOD = 5000
@@ -122,7 +126,7 @@ cfg.DATASETS.TRAIN_SET = "train"
 cfg.MLFLOW = CN()
 cfg.MLFLOW.ENABLED = True
 cfg.MLFLOW.TRACKING_URI = "http://127.0.0.1:5000"
-cfg.MLFLOW.EXPERIMENT_NAME = "siammot"
+cfg.MLFLOW.EXPERIMENT_NAME = "SiamMOT"
 cfg.MLFLOW.TRAIN_RUN_NAME = ""
 cfg.MLFLOW.INFERENCE_RUN_NAME = ""
 cfg.MLFLOW.LOG_EVERY_N_STEPS = 20

@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-model-file", required=True, type=str)
     parser.add_argument("--output-dir", required=True, type=str)
     parser.add_argument("--study-name", default="hspot_hpo", type=str)
+    parser.add_argument("--run-name-prefix", default="hspot_hota", type=str)
     parser.add_argument("--storage-file", default="", type=str)
     parser.add_argument("--datasets-root", default="datasets", type=str)
     parser.add_argument("--dataset-key", default="MOT_HSPOT", type=str)
@@ -133,6 +134,13 @@ def hpo_mlflow_tags(
         "hpo_trial_number={}".format(trial_number),
         "hpo_stage_iter={}".format(stage_iter),
     ]
+
+
+def hpo_trial_run_name(run_name_prefix: str, trial_number: int) -> str:
+    prefix = str(run_name_prefix).strip()
+    if not prefix:
+        return "trial_{:04d}".format(trial_number)
+    return "{}_trial_{:04d}".format(prefix, trial_number)
 
 
 def run_command(cmd: Sequence[str], cwd: str, env: Dict[str, str], log_path: str) -> None:
@@ -311,11 +319,17 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
 
     for stage_idx, stage_iter in enumerate(context.stage_iters, start=1):
         stage_name = "iter_{:07d}".format(stage_iter)
+        trial_run_name = hpo_trial_run_name(args.run_name_prefix, trial.number)
+        eval_suffix = "{}_{}_eval".format(
+            "trial_{:04d}".format(trial.number),
+            stage_name,
+        )
 
         stage_run_info_path = os.path.join(trial_dir, "run_info_{}.json".format(stage_name))
         stage_train_cfg = {
             "SOLVER.MAX_ITER": stage_iter,
             "MODEL.WEIGHT": current_model_file,
+            "MLFLOW.TRAIN_RUN_NAME": trial_run_name,
         }
         train_opts = combine_opts(
             base_opts,
@@ -358,6 +372,14 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
         test_opts = combine_opts(
             base_opts,
             cfg_dict_to_opts(context.common_eval_cfg),
+            cfg_dict_to_opts(
+                {
+                    "MLFLOW.INFERENCE_RUN_NAME": "{}_{}_eval".format(
+                        trial_run_name,
+                        stage_name,
+                    ),
+                }
+            ),
             sampled_opts,
         )
         test_cmd = [
@@ -367,6 +389,8 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
             context.config_file,
             "--output-dir",
             eval_root,
+            "--model-suffix",
+            eval_suffix,
             "--model-file",
             current_model_file,
             "--test-dataset",

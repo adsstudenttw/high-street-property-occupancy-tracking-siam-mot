@@ -52,6 +52,8 @@ TRAIN_EXTRA_OPTS ?=
 TEST_SET ?= val
 EVAL_METRIC ?= both
 MODEL_FILE ?=
+BASELINE_RUN_NAME ?= hspot_baseline_val
+FINE_TUNE_RUN_NAME ?= hspot_finetune
 BASELINE_MODEL_FILE ?= $(CONTAINER_WEIGHTS_DIR)/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 FINE_TUNE_MODEL_FILE ?= $(TRAIN_ARTIFACT_DIR)/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth
 TEST_EXTRA_OPTS ?=
@@ -70,6 +72,7 @@ BEST_TRIAL_FILE ?= $(HPO_ARTIFACT_DIR)/best_trial.json
 BEST_HPO_MODEL_FILE ?=
 BEST_HPO_TEST_SET ?= test
 STUDY_NAME ?= hspot_hpo
+HPO_RUN_NAME_PREFIX ?= hspot_hota
 HPO_TRAIN_SPLIT ?= train
 HPO_VAL_SPLIT ?= val
 N_TRIALS ?= 30
@@ -217,11 +220,11 @@ ingest: ensure-storage-dirs ## Ingest custom MOT dataset from DATASET_PATH.
 
 baseline: ensure-storage-dirs ## Evaluate the default pre-trained checkpoint before HSPOT training.
 	mkdir -p "$(HOST_BASELINE_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(BASELINE_ARTIFACT_DIR) --model-file $(BASELINE_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --extra-mlflow-tags stage=baseline_eval workflow=baseline_hspot dataset_key=$(DATASET_KEY) eval_split=$(TEST_SET) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(BASELINE_ARTIFACT_DIR) --model-file $(BASELINE_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --extra-mlflow-tags stage=baseline_eval workflow=baseline_hspot dataset_key=$(DATASET_KEY) eval_split=$(TEST_SET) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) INFERENCE.EVAL_METRIC $(EVAL_METRIC) MLFLOW.INFERENCE_RUN_NAME $(BASELINE_RUN_NAME) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
 train: ensure-storage-dirs ## Train/fine-tune with tools/train_net.py.
 	mkdir -p "$(HOST_TRAIN_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/train_net.py --config-file $(CONFIG_FILE) --train-dir $(TRAIN_ARTIFACT_DIR) --extra-mlflow-tags stage=fine_tune workflow=fine_tune_hspot dataset_key=$(DATASET_KEY) train_split=$(TRAIN_SPLIT) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) DATASETS.TRAIN \"('$(DATASET_KEY)',)\" DATASETS.TRAIN_SET $(TRAIN_SPLIT) $(COMMON_DEVICE_OPTS) $(TRAIN_EXTRA_OPTS)"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/train_net.py --config-file $(CONFIG_FILE) --train-dir $(TRAIN_ARTIFACT_DIR) --extra-mlflow-tags stage=fine_tune workflow=fine_tune_hspot dataset_key=$(DATASET_KEY) train_split=$(TRAIN_SPLIT) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) DATASETS.TRAIN \"('$(DATASET_KEY)',)\" DATASETS.TRAIN_SET $(TRAIN_SPLIT) MLFLOW.TRAIN_RUN_NAME $(FINE_TUNE_RUN_NAME) $(COMMON_DEVICE_OPTS) $(TRAIN_EXTRA_OPTS)"
 
 test-finetune: ensure-storage-dirs ## Evaluate the standard fine-tuned HSPOT model with explicit MLflow tagging.
 	mkdir -p "$(HOST_FINE_TUNE_EVAL_ARTIFACT_DIR)"
@@ -244,7 +247,7 @@ visualize-baseline: ensure-storage-dirs ## Render saved baseline prediction boxe
 tune: ensure-storage-dirs ## Run Optuna HPO (set BASE_MODEL_FILE).
 	@if [ -z "$(BASE_MODEL_FILE)" ]; then echo "BASE_MODEL_FILE is required, e.g. make tune BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"; exit 1; fi
 	mkdir -p "$(HOST_HPO_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/tune_optuna.py --project-root . --config-file $(CONFIG_FILE) --base-model-file $(BASE_MODEL_FILE) --output-dir $(HPO_ARTIFACT_DIR) --study-name $(STUDY_NAME) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --train-split $(HPO_TRAIN_SPLIT) --val-split $(HPO_VAL_SPLIT) --eval-metric $(EVAL_METRIC) --n-trials $(N_TRIALS) --max-iter $(MAX_ITER) --prune-checkpoints $(PRUNE_CHECKPOINTS) --base-opts $(COMMON_DEVICE_OPTS) $(TUNE_MLFLOW_FLAG) $(TUNE_EXTRA_OPTS)"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/tune_optuna.py --project-root . --config-file $(CONFIG_FILE) --base-model-file $(BASE_MODEL_FILE) --output-dir $(HPO_ARTIFACT_DIR) --study-name $(STUDY_NAME) --run-name-prefix $(HPO_RUN_NAME_PREFIX) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --train-split $(HPO_TRAIN_SPLIT) --val-split $(HPO_VAL_SPLIT) --eval-metric $(EVAL_METRIC) --n-trials $(N_TRIALS) --max-iter $(MAX_ITER) --prune-checkpoints $(PRUNE_CHECKPOINTS) --base-opts $(COMMON_DEVICE_OPTS) $(TUNE_MLFLOW_FLAG) $(TUNE_EXTRA_OPTS)"
 
 trackeval-add: ## Vendor TrackEval into third_party/TrackEval.
 	git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash

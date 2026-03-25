@@ -26,6 +26,12 @@ parser = argparse.ArgumentParser(description="PyTorch Video Object Detection Inf
 parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file", type=str)
 parser.add_argument("--output-dir", default="", help="path to output folder", type=str)
 parser.add_argument("--model-file", default=None, metavar="FILE", help="path to model file", type=str)
+parser.add_argument(
+    "--model-suffix",
+    default="",
+    help="optional suffix appended to the auto-generated model/output name",
+    type=str,
+)
 parser.add_argument("--test-dataset", default="MOT17_DPM", type=str)
 parser.add_argument("--set", default="test", type=str)
 parser.add_argument("--gpu-id", default=0, type=int)
@@ -114,7 +120,7 @@ def main() -> None:
         cfg.merge_from_list(args.opts)
     cfg.freeze()
 
-    model_name = get_model_name(cfg)
+    model_name = get_model_name(cfg, args.model_suffix)
     output_dir = os.path.join(args.output_dir, model_name)
     if not os.path.exists(output_dir):
         mkdir(output_dir)
@@ -143,6 +149,7 @@ def main() -> None:
                 "config_file": args.config_file,
                 "output_dir": output_dir,
                 "model_file": args.model_file,
+                "model_suffix": args.model_suffix,
                 "test_dataset": args.test_dataset,
                 "split": args.set,
                 "use_given_detections": cfg.INFERENCE.USE_GIVEN_DETECTIONS,
