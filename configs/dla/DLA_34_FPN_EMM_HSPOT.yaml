@@ -44,8 +44,8 @@ SOLVER:
   # Here we keep 2 clips/GPU and scale LR linearly.
   BASE_LR: 0.0012
   WEIGHT_DECAY: 0.0001
-  STEPS: (900, 1400)
-  MAX_ITER: 3000
+  STEPS: (1350, 2100)
+  MAX_ITER: 4500
   VIDEO_CLIPS_PER_BATCH: 2 #reduce to 1 if memory limits are reached
 
 DATASETS:
