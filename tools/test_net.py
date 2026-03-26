@@ -45,6 +45,18 @@ parser.add_argument(
     help="optional KEY=VALUE tags to attach to the MLflow run",
 )
 parser.add_argument(
+    "--mlflow-run-id",
+    default="",
+    help="optional existing MLflow run id to attach to instead of creating a new run",
+    type=str,
+)
+parser.add_argument(
+    "--mlflow-artifact-subdir",
+    default="",
+    help="optional artifact subdirectory used when logging into an existing MLflow run",
+    type=str,
+)
+parser.add_argument(
     "--opts",
     nargs=argparse.REMAINDER,
     default=[],
@@ -125,7 +137,12 @@ def main() -> None:
     if not os.path.exists(output_dir):
         mkdir(output_dir)
 
-    mlflow_logger = MLflowLogger(cfg)
+    attached_mlflow_run_id = str(args.mlflow_run_id).strip()
+    using_external_mlflow_run = bool(attached_mlflow_run_id)
+    mlflow_logger = MLflowLogger(
+        cfg,
+        artifact_path_prefix=str(args.mlflow_artifact_subdir).strip(),
+    )
     run_status = "FINISHED"
 
     try:
@@ -138,24 +155,31 @@ def main() -> None:
             mlflow_tags["parent_train_run_id"] = args.parent_run_id
         mlflow_tags.update(parse_mlflow_tags(args.extra_mlflow_tags))
 
-        mlflow_logger.start_run(
-            experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
-            run_name=mlflow_run_name,
-            tags=mlflow_tags,
-        )
+        if using_external_mlflow_run:
+            mlflow_logger.start_run(
+                experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+                run_id=attached_mlflow_run_id,
+                manage_lifecycle=False,
+            )
+        else:
+            mlflow_logger.start_run(
+                experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+                run_name=mlflow_run_name,
+                tags=mlflow_tags,
+            )
 
-        mlflow_logger.log_params(
-            {
-                "config_file": args.config_file,
-                "output_dir": output_dir,
-                "model_file": args.model_file,
-                "model_suffix": args.model_suffix,
-                "test_dataset": args.test_dataset,
-                "split": args.set,
-                "use_given_detections": cfg.INFERENCE.USE_GIVEN_DETECTIONS,
-            }
-        )
-        mlflow_logger.log_cfg_params(cfg)
+            mlflow_logger.log_params(
+                {
+                    "config_file": args.config_file,
+                    "output_dir": output_dir,
+                    "model_file": args.model_file,
+                    "model_suffix": args.model_suffix,
+                    "test_dataset": args.test_dataset,
+                    "split": args.set,
+                    "use_given_detections": cfg.INFERENCE.USE_GIVEN_DETECTIONS,
+                }
+            )
+            mlflow_logger.log_cfg_params(cfg)
 
         infer_results = test(cfg, args, output_dir)
         infer_metrics = cast(Dict[str, float], infer_results.get("metrics", {}))

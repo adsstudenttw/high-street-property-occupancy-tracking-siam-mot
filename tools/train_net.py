@@ -61,6 +61,18 @@ parser.add_argument(
     help="optional KEY=VALUE tags to attach to the MLflow run",
 )
 parser.add_argument(
+    "--mlflow-run-id",
+    default="",
+    help="optional existing MLflow run id to attach to instead of creating a new run",
+    type=str,
+)
+parser.add_argument(
+    "--mlflow-artifact-subdir",
+    default="",
+    help="optional artifact subdirectory used when logging into an existing MLflow run",
+    type=str,
+)
+parser.add_argument(
     "--opts",
     nargs=argparse.REMAINDER,
     default=[],
@@ -205,7 +217,13 @@ def main() -> None:
 
     train_dir, logger = setup_env_and_logger(args, cfg)
     model_name = os.path.basename(train_dir)
-    mlflow_logger = MLflowLogger(cfg, logger)
+    attached_mlflow_run_id = str(args.mlflow_run_id).strip()
+    using_external_mlflow_run = bool(attached_mlflow_run_id)
+    mlflow_logger = MLflowLogger(
+        cfg,
+        logger,
+        artifact_path_prefix=str(args.mlflow_artifact_subdir).strip(),
+    )
     run_status = "FINISHED"
 
     try:
@@ -217,29 +235,36 @@ def main() -> None:
             "model_name": model_name,
         }
         mlflow_tags.update(parse_mlflow_tags(args.extra_mlflow_tags))
-        mlflow_logger.start_run(
-            experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
-            run_name=mlflow_run_name,
-            tags=mlflow_tags,
-        )
-
-        mlflow_logger.log_params(
-            {
-                "config_file": args.config_file,
-                "train_dir": train_dir,
-                "model_suffix": args.model_suffix,
-                "distributed": args.distributed,
-                "dtype": cfg.DTYPE,
-                "num_train_datasets": len(cfg.DATASETS.TRAIN),
-                "train_split": str(getattr(cfg.DATASETS, "TRAIN_SET", "train")),
-            }
-        )
-        mlflow_logger.log_cfg_params(cfg)
-
-        if cfg.MLFLOW.LOG_CONFIG_ARTIFACT:
-            mlflow_logger.log_artifact(
-                os.path.join(train_dir, "config.yml"), artifact_path="configs"
+        if using_external_mlflow_run:
+            mlflow_logger.start_run(
+                experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+                run_id=attached_mlflow_run_id,
+                manage_lifecycle=False,
             )
+        else:
+            mlflow_logger.start_run(
+                experiment_name=cfg.MLFLOW.EXPERIMENT_NAME,
+                run_name=mlflow_run_name,
+                tags=mlflow_tags,
+            )
+
+            mlflow_logger.log_params(
+                {
+                    "config_file": args.config_file,
+                    "train_dir": train_dir,
+                    "model_suffix": args.model_suffix,
+                    "distributed": args.distributed,
+                    "dtype": cfg.DTYPE,
+                    "num_train_datasets": len(cfg.DATASETS.TRAIN),
+                    "train_split": str(getattr(cfg.DATASETS, "TRAIN_SET", "train")),
+                }
+            )
+            mlflow_logger.log_cfg_params(cfg)
+
+            if cfg.MLFLOW.LOG_CONFIG_ARTIFACT:
+                mlflow_logger.log_artifact(
+                    os.path.join(train_dir, "config.yml"), artifact_path="configs"
+                )
 
         if mlflow_logger.run_id:
             run_id_file = os.path.join(train_dir, "mlflow_run_id.txt")

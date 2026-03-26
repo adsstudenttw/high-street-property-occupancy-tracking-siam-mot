@@ -1,14 +1,18 @@
 import argparse
+import datetime
 import json
 import os
 import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, Sequence
 
 import optuna
 from optuna.trial import TrialState
+
+from siammot.engine.mlflow_logger import MLflowLogger
 
 
 def parse_args() -> argparse.Namespace:
@@ -237,6 +241,84 @@ class TuningContext:
     common_eval_cfg: Dict[str, Any]
     objective_metric: str
     stage_iters: List[int]
+    mlflow_experiment_name: str
+    mlflow_parent_run_id: str = ""
+
+
+def write_json(path: str, payload: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+
+def resolve_mlflow_experiment_name(
+    config_file: str,
+    base_opts: Sequence[str],
+) -> str:
+    from siammot.configs.defaults import cfg as default_cfg
+
+    resolved_cfg = default_cfg.clone()
+    resolved_cfg.merge_from_file(config_file)
+    if base_opts:
+        resolved_cfg.merge_from_list(list(base_opts))
+    experiment_name = str(resolved_cfg.MLFLOW.EXPERIMENT_NAME).strip()
+    return experiment_name or "SiamMOT"
+
+
+def make_mlflow_logger(
+    enabled: bool,
+    experiment_name: str,
+    artifact_path_prefix: str = "",
+) -> MLflowLogger:
+    mlflow_cfg = SimpleNamespace(
+        MLFLOW=SimpleNamespace(
+            ENABLED=bool(enabled),
+            TRACKING_URI=os.environ.get("MLFLOW_TRACKING_URI", "").strip(),
+            EXPERIMENT_NAME=str(experiment_name).strip() or "SiamMOT",
+        )
+    )
+    return MLflowLogger(mlflow_cfg, artifact_path_prefix=artifact_path_prefix)
+
+
+def hpo_parent_run_name(study_name: str, run_name_prefix: str) -> str:
+    base_name = str(run_name_prefix).strip() or str(study_name).strip() or "hpo"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return "{}_tune_{}".format(base_name, timestamp)
+
+
+def stage_artifact_subdir(stage_name: str, stage_kind: str) -> str:
+    return "stages/{}/{}".format(stage_name, stage_kind)
+
+
+def log_trial_stage_metrics(
+    mlflow_logger: Optional[MLflowLogger],
+    stage_name: str,
+    stage_iter: int,
+    objective_metric_name: str,
+    objective_value: float,
+    metrics: Dict[str, Any],
+    best_metric: Optional[float],
+) -> None:
+    if mlflow_logger is None or not mlflow_logger.can_log:
+        return
+
+    mlflow_logger.log_metric("hpo/objective", objective_value, step=stage_iter)
+    mlflow_logger.log_metric(
+        "hpo/stage/{}/{}".format(stage_name, objective_metric_name),
+        objective_value,
+    )
+    if best_metric is not None:
+        mlflow_logger.log_metric("hpo/best_objective_so_far", best_metric, step=stage_iter)
+
+    for metric_name, metric_value in metrics.items():
+        try:
+            parsed_value = float(metric_value)
+        except (TypeError, ValueError):
+            continue
+        mlflow_logger.log_metric(
+            "hpo/stage/{}/{}".format(stage_name, metric_name),
+            parsed_value,
+        )
 
 
 def build_context(args: argparse.Namespace) -> TuningContext:
@@ -285,6 +367,7 @@ def build_context(args: argparse.Namespace) -> TuningContext:
         "INFERENCE.EVAL_METRIC": args.eval_metric,
         "MLFLOW.ENABLED": bool(args.mlflow_enabled),
     }
+    mlflow_experiment_name = resolve_mlflow_experiment_name(config_file, args.base_opts)
 
     stage_iters = parse_stage_iters(args.prune_checkpoints, args.max_iter)
     print("Pruning stages (iters): {}".format(stage_iters))
@@ -301,6 +384,7 @@ def build_context(args: argparse.Namespace) -> TuningContext:
         common_eval_cfg=common_eval_cfg,
         objective_metric=objective_metric,
         stage_iters=stage_iters,
+        mlflow_experiment_name=mlflow_experiment_name,
     )
 
 
@@ -320,153 +404,283 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
     sampled_opts = cfg_dict_to_opts(sampled_cfg)
     base_opts = list(args.base_opts)
 
+    trial_mlflow_logger: Optional[MLflowLogger] = None
+    trial_run_status = "FINISHED"
+    trial_state_label = "COMPLETE"
     current_model_file = os.path.abspath(args.base_model_file)
-    current_metric = None
-    best_metric = None
+    current_metric: Optional[float] = None
+    best_metric: Optional[float] = None
     non_improve_stages = 0
-
-    for stage_idx, stage_iter in enumerate(context.stage_iters, start=1):
-        stage_name = "iter_{:07d}".format(stage_iter)
-        trial_run_name = hpo_trial_run_name(args.run_name_prefix, trial.number)
-        eval_suffix = "{}_{}_eval".format(
-            "trial_{:04d}".format(trial.number),
-            stage_name,
-        )
-
-        stage_run_info_path = os.path.join(
-            trial_dir, "run_info_{}.json".format(stage_name)
-        )
-        stage_train_cfg = {
-            "SOLVER.MAX_ITER": stage_iter,
-            "MODEL.WEIGHT": current_model_file,
-            "MLFLOW.TRAIN_RUN_NAME": trial_run_name,
-        }
-        train_opts = combine_opts(
-            base_opts,
-            cfg_dict_to_opts(context.common_data_cfg),
-            cfg_dict_to_opts(stage_train_cfg),
-            sampled_opts,
-        )
-        train_cmd = [
-            sys.executable,
-            context.train_script,
-            "--config-file",
-            context.config_file,
-            "--train-dir",
-            train_root,
-            "--model-suffix",
-            "trial_{:04d}".format(trial.number),
-            "--run-info-file",
-            stage_run_info_path,
-            "--extra-mlflow-tags",
-            *hpo_mlflow_tags(args, trial.number, "hpo_train", stage_iter),
-            "--opts",
-            *train_opts,
-        ]
-        run_command(
-            train_cmd,
-            cwd=context.project_root,
-            env=context.env,
-            log_path=os.path.join(logs_root, "train_{}.log".format(stage_name)),
-        )
-
-        run_info = load_json(stage_run_info_path)
-        final_checkpoint = str(run_info.get("final_checkpoint", "")).strip()
-        if not final_checkpoint or not os.path.isfile(final_checkpoint):
-            raise FileNotFoundError(
-                "Could not find final checkpoint for {}: {}".format(
-                    stage_name, final_checkpoint
-                )
+    try:
+        if args.mlflow_enabled:
+            trial_mlflow_logger = make_mlflow_logger(
+                enabled=True,
+                experiment_name=context.mlflow_experiment_name,
             )
-        current_model_file = final_checkpoint
-
-        stage_metrics_path = os.path.join(
-            trial_dir, "metrics_{}.json".format(stage_name)
-        )
-        test_opts = combine_opts(
-            base_opts,
-            cfg_dict_to_opts(context.common_eval_cfg),
-            cfg_dict_to_opts(
+            trial_tags = {
+                "stage": "hpo_trial",
+                "workflow": "tune_optuna",
+                "hpo_study_name": args.study_name,
+                "hpo_trial_number": str(trial.number),
+            }
+            if context.mlflow_parent_run_id:
+                trial_tags["hpo_parent_run_id"] = context.mlflow_parent_run_id
+            trial_mlflow_logger.start_run(
+                experiment_name=context.mlflow_experiment_name,
+                run_name=hpo_trial_run_name(args.run_name_prefix, trial.number),
+                tags=trial_tags,
+                nested=True,
+            )
+            trial.set_user_attr("mlflow_run_id", trial_mlflow_logger.run_id)
+            trial_mlflow_logger.log_params(
                 {
-                    "MLFLOW.INFERENCE_RUN_NAME": "{}_{}_eval".format(
-                        trial_run_name,
-                        stage_name,
-                    ),
+                    "hpo_trial_number": trial.number,
+                    "hpo_study_name": args.study_name,
+                    "hpo_objective_metric": context.objective_metric,
+                    "hpo_eval_metric_mode": args.eval_metric,
+                    "hpo_train_split": args.train_split,
+                    "hpo_val_split": args.val_split,
+                    "hpo_direction": args.direction,
+                    **{
+                        "optuna.{}".format(param_name): param_value
+                        for param_name, param_value in trial.params.items()
+                    },
                 }
-            ),
-            sampled_opts,
-        )
-        test_cmd = [
-            sys.executable,
-            context.test_script,
-            "--config-file",
-            context.config_file,
-            "--output-dir",
-            eval_root,
-            "--model-suffix",
-            eval_suffix,
-            "--model-file",
-            current_model_file,
-            "--test-dataset",
-            args.dataset_key,
-            "--set",
-            args.val_split,
-            "--metrics-file",
-            stage_metrics_path,
-            "--extra-mlflow-tags",
-            *hpo_mlflow_tags(args, trial.number, "hpo_eval", stage_iter),
-            "--opts",
-            *test_opts,
-        ]
-        run_command(
-            test_cmd,
-            cwd=context.project_root,
-            env=context.env,
-            log_path=os.path.join(logs_root, "eval_{}.log".format(stage_name)),
-        )
-
-        metrics_payload = load_json(stage_metrics_path)
-        metrics = metrics_payload.get("metrics", {})
-        if context.objective_metric not in metrics:
-            raise KeyError(
-                "Metric '{}' not found in {}. Available keys: {}".format(
-                    context.objective_metric, stage_metrics_path, sorted(metrics.keys())
-                )
             )
-        current_metric = float(metrics[context.objective_metric])
-        trial.report(current_metric, step=stage_iter)
-        trial.set_user_attr("metric_{}".format(stage_name), current_metric)
-
-        if best_metric is None or is_improved(
-            current_metric,
-            best_metric,
-            direction=args.direction,
-            min_delta=float(args.early_stop_min_delta),
-        ):
-            best_metric = current_metric
-            non_improve_stages = 0
-        else:
-            non_improve_stages += 1
-
-        if (
-            int(args.early_stop_patience) > 0
-            and stage_idx > int(args.early_stop_warmup_stages)
-            and non_improve_stages >= int(args.early_stop_patience)
-        ):
-            trial.set_user_attr("stopped_early_at_iter", stage_iter)
-            raise optuna.TrialPruned(
-                "Early stopping: no improvement for {} stage(s)".format(
-                    non_improve_stages
-                )
+            trial_inputs_path = os.path.join(trial_dir, "trial_inputs.json")
+            write_json(
+                trial_inputs_path,
+                {
+                    "number": trial.number,
+                    "params": trial.params,
+                    "sampled_cfg": sampled_cfg,
+                    "study_name": args.study_name,
+                    "objective_metric": context.objective_metric,
+                    "eval_metric_mode": args.eval_metric,
+                    "train_split": args.train_split,
+                    "val_split": args.val_split,
+                },
             )
-        if trial.should_prune():
-            trial.set_user_attr("pruned_at_iter", stage_iter)
-            raise optuna.TrialPruned("Optuna pruner stopped the trial")
+            trial_mlflow_logger.log_artifact(trial_inputs_path, artifact_path="metadata")
 
-    assert current_metric is not None
-    trial.set_user_attr("final_checkpoint", current_model_file)
-    trial.set_user_attr("sampled_cfg", sampled_cfg)
-    return current_metric
+        for stage_idx, stage_iter in enumerate(context.stage_iters, start=1):
+            stage_name = "iter_{:07d}".format(stage_iter)
+            eval_suffix = "{}_{}_eval".format(
+                "trial_{:04d}".format(trial.number),
+                stage_name,
+            )
+
+            stage_run_info_path = os.path.join(
+                trial_dir, "run_info_{}.json".format(stage_name)
+            )
+            stage_train_cfg = {
+                "SOLVER.MAX_ITER": stage_iter,
+                "MODEL.WEIGHT": current_model_file,
+            }
+            train_opts = combine_opts(
+                base_opts,
+                cfg_dict_to_opts(context.common_data_cfg),
+                cfg_dict_to_opts(stage_train_cfg),
+                sampled_opts,
+            )
+            train_cmd = [
+                sys.executable,
+                context.train_script,
+                "--config-file",
+                context.config_file,
+                "--train-dir",
+                train_root,
+                "--model-suffix",
+                "trial_{:04d}".format(trial.number),
+                "--run-info-file",
+                stage_run_info_path,
+                "--extra-mlflow-tags",
+                *hpo_mlflow_tags(args, trial.number, "hpo_train", stage_iter),
+                "--opts",
+                *train_opts,
+            ]
+            if args.mlflow_enabled and trial_mlflow_logger is not None and trial_mlflow_logger.run_id:
+                train_cmd.extend(
+                    [
+                        "--mlflow-run-id",
+                        trial_mlflow_logger.run_id,
+                        "--mlflow-artifact-subdir",
+                        stage_artifact_subdir(stage_name, "train"),
+                    ]
+                )
+            run_command(
+                train_cmd,
+                cwd=context.project_root,
+                env=context.env,
+                log_path=os.path.join(logs_root, "train_{}.log".format(stage_name)),
+            )
+
+            run_info = load_json(stage_run_info_path)
+            final_checkpoint = str(run_info.get("final_checkpoint", "")).strip()
+            if not final_checkpoint or not os.path.isfile(final_checkpoint):
+                raise FileNotFoundError(
+                    "Could not find final checkpoint for {}: {}".format(
+                        stage_name, final_checkpoint
+                    )
+                )
+            current_model_file = final_checkpoint
+
+            stage_metrics_path = os.path.join(
+                trial_dir, "metrics_{}.json".format(stage_name)
+            )
+            test_opts = combine_opts(
+                base_opts,
+                cfg_dict_to_opts(context.common_eval_cfg),
+                sampled_opts,
+            )
+            test_cmd = [
+                sys.executable,
+                context.test_script,
+                "--config-file",
+                context.config_file,
+                "--output-dir",
+                eval_root,
+                "--model-suffix",
+                eval_suffix,
+                "--model-file",
+                current_model_file,
+                "--test-dataset",
+                args.dataset_key,
+                "--set",
+                args.val_split,
+                "--metrics-file",
+                stage_metrics_path,
+                "--extra-mlflow-tags",
+                *hpo_mlflow_tags(args, trial.number, "hpo_eval", stage_iter),
+                "--opts",
+                *test_opts,
+            ]
+            if args.mlflow_enabled and trial_mlflow_logger is not None and trial_mlflow_logger.run_id:
+                test_cmd.extend(
+                    [
+                        "--mlflow-run-id",
+                        trial_mlflow_logger.run_id,
+                        "--mlflow-artifact-subdir",
+                        stage_artifact_subdir(stage_name, "eval"),
+                    ]
+                )
+            run_command(
+                test_cmd,
+                cwd=context.project_root,
+                env=context.env,
+                log_path=os.path.join(logs_root, "eval_{}.log".format(stage_name)),
+            )
+
+            metrics_payload = load_json(stage_metrics_path)
+            metrics = metrics_payload.get("metrics", {})
+            if context.objective_metric not in metrics:
+                raise KeyError(
+                    "Metric '{}' not found in {}. Available keys: {}".format(
+                        context.objective_metric, stage_metrics_path, sorted(metrics.keys())
+                    )
+                )
+            current_metric = float(metrics[context.objective_metric])
+            trial.report(current_metric, step=stage_iter)
+            trial.set_user_attr("metric_{}".format(stage_name), current_metric)
+
+            if best_metric is None or is_improved(
+                current_metric,
+                best_metric,
+                direction=args.direction,
+                min_delta=float(args.early_stop_min_delta),
+            ):
+                best_metric = current_metric
+                non_improve_stages = 0
+            else:
+                non_improve_stages += 1
+
+            log_trial_stage_metrics(
+                trial_mlflow_logger,
+                stage_name=stage_name,
+                stage_iter=stage_iter,
+                objective_metric_name=context.objective_metric,
+                objective_value=current_metric,
+                metrics=metrics,
+                best_metric=best_metric,
+            )
+
+            stage_summary_path = os.path.join(
+                trial_dir, "stage_summary_{}.json".format(stage_name)
+            )
+            write_json(
+                stage_summary_path,
+                {
+                    "stage_name": stage_name,
+                    "stage_iter": stage_iter,
+                    "objective_metric": context.objective_metric,
+                    "objective_value": current_metric,
+                    "best_metric_so_far": best_metric,
+                    "train_run_info": run_info,
+                    "evaluation": metrics_payload,
+                },
+            )
+            if trial_mlflow_logger is not None:
+                trial_mlflow_logger.log_artifact(
+                    stage_summary_path,
+                    artifact_path="stages/{}".format(stage_name),
+                )
+
+            if (
+                int(args.early_stop_patience) > 0
+                and stage_idx > int(args.early_stop_warmup_stages)
+                and non_improve_stages >= int(args.early_stop_patience)
+            ):
+                trial.set_user_attr("stopped_early_at_iter", stage_iter)
+                raise optuna.TrialPruned(
+                    "Early stopping: no improvement for {} stage(s)".format(
+                        non_improve_stages
+                    )
+                )
+            if trial.should_prune():
+                trial.set_user_attr("pruned_at_iter", stage_iter)
+                raise optuna.TrialPruned("Optuna pruner stopped the trial")
+
+        assert current_metric is not None
+        trial.set_user_attr("final_checkpoint", current_model_file)
+        trial.set_user_attr("sampled_cfg", sampled_cfg)
+        return current_metric
+    except optuna.TrialPruned:
+        trial_run_status = "KILLED"
+        trial_state_label = "PRUNED"
+        raise
+    except Exception:
+        trial_run_status = "FAILED"
+        trial_state_label = "FAILED"
+        raise
+    finally:
+        if trial_mlflow_logger is not None:
+            if current_metric is not None:
+                trial_mlflow_logger.log_metric("hpo/final_objective", current_metric)
+            if best_metric is not None:
+                trial_mlflow_logger.log_metric("hpo/best_objective", best_metric)
+            trial_mlflow_logger.set_tags(
+                {
+                    "hpo_trial_state": trial_state_label,
+                    "hpo_final_checkpoint": current_model_file,
+                }
+            )
+            trial_summary_path = os.path.join(trial_dir, "trial_summary.json")
+            write_json(
+                trial_summary_path,
+                {
+                    "number": trial.number,
+                    "state": trial_state_label,
+                    "value": current_metric,
+                    "best_metric": best_metric,
+                    "params": trial.params,
+                    "sampled_cfg": sampled_cfg,
+                    "user_attrs": dict(trial.user_attrs),
+                    "final_checkpoint": current_model_file,
+                    "mlflow_run_id": trial_mlflow_logger.run_id,
+                },
+            )
+            trial_mlflow_logger.log_artifact(trial_summary_path, artifact_path="metadata")
+            trial_mlflow_logger.end_run(status=trial_run_status)
 
 
 def dump_study_summary(study: optuna.study.Study, output_dir: str) -> None:
@@ -501,55 +715,117 @@ def dump_study_summary(study: optuna.study.Study, output_dir: str) -> None:
 def main() -> None:
     args = parse_args()
     context = build_context(args)
+    parent_mlflow_logger: Optional[MLflowLogger] = None
+    parent_run_status = "FINISHED"
 
-    sampler = optuna.samplers.TPESampler(seed=args.seed, multivariate=True)
-    pruner = optuna.pruners.MedianPruner(
-        n_startup_trials=args.pruner_startup_trials,
-        n_warmup_steps=args.pruner_warmup_steps,
-        interval_steps=1,
-    )
-    study = optuna.create_study(
-        study_name=args.study_name,
-        direction=args.direction,
-        sampler=sampler,
-        pruner=pruner,
-        storage=to_optuna_storage_url(args.storage_file),
-        load_if_exists=True,
-    )
+    if args.mlflow_enabled:
+        parent_mlflow_logger = make_mlflow_logger(
+            enabled=True,
+            experiment_name=context.mlflow_experiment_name,
+        )
+        parent_mlflow_logger.start_run(
+            experiment_name=context.mlflow_experiment_name,
+            run_name=hpo_parent_run_name(args.study_name, args.run_name_prefix),
+            tags={
+                "stage": "hpo",
+                "workflow": "tune_optuna",
+                "hpo_study_name": args.study_name,
+            },
+        )
+        context.mlflow_parent_run_id = parent_mlflow_logger.run_id or ""
+        parent_mlflow_logger.log_params(
+            {
+                "study_name": args.study_name,
+                "config_file": context.config_file,
+                "base_model_file": args.base_model_file,
+                "dataset_key": args.dataset_key,
+                "datasets_root": args.datasets_root,
+                "train_split": args.train_split,
+                "val_split": args.val_split,
+                "eval_metric_mode": args.eval_metric,
+                "objective_metric": context.objective_metric,
+                "direction": args.direction,
+                "n_trials": args.n_trials,
+                "max_iter": args.max_iter,
+                "prune_checkpoints": args.prune_checkpoints,
+                "run_name_prefix": args.run_name_prefix,
+            }
+        )
 
-    timeout = None if args.timeout_sec <= 0 else args.timeout_sec
-    study.optimize(
-        lambda trial: trial_objective(context, trial),
-        n_trials=args.n_trials,
-        timeout=timeout,
-        gc_after_trial=True,
-        show_progress_bar=False,
-    )
+    try:
+        sampler = optuna.samplers.TPESampler(seed=args.seed, multivariate=True)
+        pruner = optuna.pruners.MedianPruner(
+            n_startup_trials=args.pruner_startup_trials,
+            n_warmup_steps=args.pruner_warmup_steps,
+            interval_steps=1,
+        )
+        study = optuna.create_study(
+            study_name=args.study_name,
+            direction=args.direction,
+            sampler=sampler,
+            pruner=pruner,
+            storage=to_optuna_storage_url(args.storage_file),
+            load_if_exists=True,
+        )
 
-    completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
-    if not completed_trials:
-        raise RuntimeError("No completed trials found. Cannot select best checkpoint.")
+        timeout = None if args.timeout_sec <= 0 else args.timeout_sec
+        study.optimize(
+            lambda trial: trial_objective(context, trial),
+            n_trials=args.n_trials,
+            timeout=timeout,
+            gc_after_trial=True,
+            show_progress_bar=False,
+        )
 
-    output_dir = os.path.abspath(args.output_dir)
-    dump_study_summary(study, output_dir)
+        completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+        if not completed_trials:
+            raise RuntimeError("No completed trials found. Cannot select best checkpoint.")
 
-    summary = {
-        "study_name": args.study_name,
-        "storage_file": os.path.abspath(args.storage_file),
-        "eval_metric_mode": args.eval_metric,
-        "objective_metric": context.objective_metric,
-        "best_trial_number": study.best_trial.number,
-        "best_trial_value": study.best_value,
-        "best_trial_params": study.best_trial.params,
-        "best_checkpoint": study.best_trial.user_attrs.get("final_checkpoint"),
-    }
-    summary_file = os.path.join(output_dir, "hpo_summary.json")
-    with open(summary_file, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, sort_keys=True)
+        output_dir = os.path.abspath(args.output_dir)
+        dump_study_summary(study, output_dir)
 
-    print("\nHPO complete.")
-    print("Summary: {}".format(summary_file))
-    print("Best trial: #{} value={}".format(study.best_trial.number, study.best_value))
+        summary = {
+            "study_name": args.study_name,
+            "storage_file": os.path.abspath(args.storage_file),
+            "eval_metric_mode": args.eval_metric,
+            "objective_metric": context.objective_metric,
+            "best_trial_number": study.best_trial.number,
+            "best_trial_value": study.best_value,
+            "best_trial_params": study.best_trial.params,
+            "best_checkpoint": study.best_trial.user_attrs.get("final_checkpoint"),
+        }
+        summary_file = os.path.join(output_dir, "hpo_summary.json")
+        write_json(summary_file, summary)
+
+        if parent_mlflow_logger is not None:
+            parent_mlflow_logger.log_metrics(
+                {
+                    "hpo/best_trial_number": study.best_trial.number,
+                    "hpo/best_trial_value": study.best_value,
+                    "hpo/completed_trials": len(completed_trials),
+                    "hpo/total_trials": len(study.trials),
+                }
+            )
+            for artifact_name in (
+                "study_trials.json",
+                "best_trial.json",
+                "hpo_summary.json",
+            ):
+                artifact_path = os.path.join(output_dir, artifact_name)
+                if os.path.isfile(artifact_path):
+                    parent_mlflow_logger.log_artifact(
+                        artifact_path, artifact_path="summary"
+                    )
+
+        print("\nHPO complete.")
+        print("Summary: {}".format(summary_file))
+        print("Best trial: #{} value={}".format(study.best_trial.number, study.best_value))
+    except Exception:
+        parent_run_status = "FAILED"
+        raise
+    finally:
+        if parent_mlflow_logger is not None:
+            parent_mlflow_logger.end_run(status=parent_run_status)
 
 
 if __name__ == "__main__":

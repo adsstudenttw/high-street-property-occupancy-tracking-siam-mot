@@ -35,14 +35,21 @@ def _resolve_tracking_uri(cfg) -> str:
 
 
 class MLflowLogger(object):
-    def __init__(self, cfg, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        cfg,
+        logger: Optional[logging.Logger] = None,
+        artifact_path_prefix: str = "",
+    ):
         self._cfg = cfg
         self._logger = logger or logging.getLogger(__name__)
         self._enabled = bool(getattr(cfg, "MLFLOW", None) and cfg.MLFLOW.ENABLED)
         self._can_log = self._enabled and _is_main_process()
         self._active_run = False
+        self._manage_lifecycle = True
         self._mlflow = None
         self._run_id = None
+        self._artifact_path_prefix = str(artifact_path_prefix or "").strip().strip("/")
 
         if self._enabled:
             try:
@@ -70,12 +77,36 @@ class MLflowLogger(object):
     def run_id(self) -> Optional[str]:
         return self._run_id
 
-    def start_run(self, experiment_name: str, run_name: str = "", tags: Optional[Dict[str, str]] = None):
+    def _resolve_artifact_path(self, artifact_path: Optional[str]) -> Optional[str]:
+        suffix = str(artifact_path or "").strip().strip("/")
+        if self._artifact_path_prefix and suffix:
+            return "{}/{}".format(self._artifact_path_prefix, suffix)
+        if self._artifact_path_prefix:
+            return self._artifact_path_prefix
+        return suffix or None
+
+    def start_run(
+        self,
+        experiment_name: str,
+        run_name: str = "",
+        tags: Optional[Dict[str, str]] = None,
+        run_id: Optional[str] = None,
+        nested: bool = False,
+        manage_lifecycle: bool = True,
+    ):
         if not self._can_log:
             return
 
-        self._mlflow.set_experiment(experiment_name)
-        active_run = self._mlflow.start_run(run_name=(run_name or None), tags=tags)
+        self._manage_lifecycle = manage_lifecycle
+        if run_id:
+            active_run = self._mlflow.start_run(run_id=run_id)
+        else:
+            self._mlflow.set_experiment(experiment_name)
+            active_run = self._mlflow.start_run(
+                run_name=(run_name or None),
+                tags=tags,
+                nested=nested,
+            )
         self._active_run = True
         self._run_id = active_run.info.run_id
         self._logger.info("MLflow run started: %s", self._run_id)
@@ -83,7 +114,8 @@ class MLflowLogger(object):
     def end_run(self, status: str = "FINISHED"):
         if not self._can_log or not self._active_run:
             return
-        self._mlflow.end_run(status=status)
+        if self._manage_lifecycle:
+            self._mlflow.end_run(status=status)
         self._active_run = False
 
     def set_tags(self, tags: Dict[str, str]):
@@ -134,7 +166,9 @@ class MLflowLogger(object):
         if not os.path.exists(path):
             self._logger.warning("MLflow artifact path does not exist: %s", path)
             return
-        self._mlflow.log_artifact(path, artifact_path=artifact_path)
+        self._mlflow.log_artifact(
+            path, artifact_path=self._resolve_artifact_path(artifact_path)
+        )
 
     def log_artifacts(self, path: str, artifact_path: Optional[str] = None):
         if not self._can_log or not self._active_run:
@@ -142,7 +176,9 @@ class MLflowLogger(object):
         if not os.path.isdir(path):
             self._logger.warning("MLflow artifacts directory does not exist: %s", path)
             return
-        self._mlflow.log_artifacts(path, artifact_path=artifact_path)
+        self._mlflow.log_artifacts(
+            path, artifact_path=self._resolve_artifact_path(artifact_path)
+        )
 
     def log_config(self, cfg, artifact_file: str = "config.yml"):
         if not self._can_log or not self._active_run:
