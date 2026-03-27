@@ -1,16 +1,16 @@
 INPUT:
-  MIN_SIZE_TRAIN: (640, 704, 768, 832)
+  # MIN_SIZE_TRAIN: (640, 704, 768, 832)
   # Alternative for higher detail on small storefront objects:
-  # MIN_SIZE_TRAIN: (768, 832, 896, 960)
-  MAX_SIZE_TRAIN: 1600
+  MIN_SIZE_TRAIN: (768, 832, 896, 960)
+  # MAX_SIZE_TRAIN: 1600
   # Alternative for higher detail on small storefront objects:
-  # MAX_SIZE_TRAIN: 1920
-  MIN_SIZE_TEST: 800
+  MAX_SIZE_TRAIN: 1920
+  # MIN_SIZE_TEST: 800
   # Alternative for higher detail on small storefront objects:
-  # MIN_SIZE_TEST: 960
-  MAX_SIZE_TEST: 1600
+  MIN_SIZE_TEST: 960
+  # MAX_SIZE_TEST: 1600
   # Alternative for higher detail on small storefront objects:
-  # MAX_SIZE_TEST: 1920
+  MAX_SIZE_TEST: 1920
   PIXEL_MEAN: [0.485, 0.456, 0.406]
   PIXEL_STD: [0.229, 0.224, 0.225]
   TO_BGR255: False
