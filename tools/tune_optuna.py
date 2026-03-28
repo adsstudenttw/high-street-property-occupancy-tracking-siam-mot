@@ -496,8 +496,6 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
                 stage_run_info_path,
                 "--extra-mlflow-tags",
                 *hpo_mlflow_tags(args, trial.number, "hpo_train", stage_iter),
-                "--opts",
-                *train_opts,
             ]
             if args.mlflow_enabled and trial_mlflow_logger is not None and trial_mlflow_logger.run_id:
                 train_cmd.extend(
@@ -508,6 +506,12 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
                         stage_artifact_subdir(stage_name, "train"),
                     ]
                 )
+            train_cmd.extend(
+                [
+                    "--opts",
+                    *train_opts,
+                ]
+            )
             run_command(
                 train_cmd,
                 cwd=context.project_root,
@@ -552,8 +556,6 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
                 stage_metrics_path,
                 "--extra-mlflow-tags",
                 *hpo_mlflow_tags(args, trial.number, "hpo_eval", stage_iter),
-                "--opts",
-                *test_opts,
             ]
             if args.mlflow_enabled and trial_mlflow_logger is not None and trial_mlflow_logger.run_id:
                 test_cmd.extend(
@@ -564,6 +566,12 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
                         stage_artifact_subdir(stage_name, "eval"),
                     ]
                 )
+            test_cmd.extend(
+                [
+                    "--opts",
+                    *test_opts,
+                ]
+            )
             run_command(
                 test_cmd,
                 cwd=context.project_root,
