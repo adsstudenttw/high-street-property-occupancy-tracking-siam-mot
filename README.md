@@ -269,10 +269,10 @@ Run HPO:
 ~~~bash
 make tune \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
-  EVAL_METRIC=both \
+  HPO_EVAL_METRIC=both \
   N_TRIALS=40 \
-  MAX_ITER=3000 \
-  PRUNE_CHECKPOINTS=900,2100 \
+  MAX_ITER=1800 \
+  PRUNE_CHECKPOINTS=900 \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
 ~~~
@@ -282,10 +282,10 @@ Behavior:
 2. Each trial evaluates on `val` with `test_net.py`.
 
 These defaults keep HPO aligned with the small HSPOT `val` split by training each trial on
-`train`, validating on `val`, and using combined CLEAR+HOTA evaluation with a moderate
-3000-iteration trial budget.
+`train`, validating on `val`, computing both CLEAR and HOTA metrics, and keeping each trial
+shorter with a lightweight 1800-iteration budget plus one pruning stage at iteration 900.
 
-Objective metric by `EVAL_METRIC`:
+Objective metric by HPO evaluation mode:
 1. `clear` -> `infer/mot/idf1`
 2. `hota` -> `infer/mot/hota`
 3. `both` -> `infer/mot/hota`
@@ -294,6 +294,38 @@ HPO outputs:
 1. `${HOST_STORAGE_ROOT}/artifacts/hpo/best_trial.json`
 2. `${HOST_STORAGE_ROOT}/artifacts/hpo/study_trials.json`
 3. `${HOST_STORAGE_ROOT}/artifacts/hpo/hpo_summary.json`
+
+To restart HPO from scratch, delete:
+~~~bash
+rm -rf /data/siammot_storage/siammot/artifacts/hpo
+rm -rf /data/siammot_storage/siammot/artifacts/best_hpo_eval
+~~~
+
+This resets the Optuna study database and all saved HPO trial artifacts. If you also want a
+visually clean MLflow experiment page, archive or delete the old HPO runs in MLflow separately.
+
+For long HPO jobs, run the process inside `tmux` so it survives SSH disconnects:
+~~~bash
+tmux new -s hpo
+make tune \
+  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
+  HPO_EVAL_METRIC=both \
+  N_TRIALS=40 \
+  MAX_ITER=1800 \
+  PRUNE_CHECKPOINTS=900 \
+  HPO_TRAIN_SPLIT=train \
+  HPO_VAL_SPLIT=val
+~~~
+
+Detach from `tmux` without stopping the run:
+~~~bash
+Ctrl-b d
+~~~
+
+Reconnect later:
+~~~bash
+tmux attach -t hpo
+~~~
 
 ### 13. Final Evaluation Of The Best HPO Model
 Run the final test evaluation explicitly with the dedicated Make target:
@@ -419,7 +451,7 @@ make tune \
   GPU=none \
   DEVICE=cpu \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
-  EVAL_METRIC=both \
+  HPO_EVAL_METRIC=both \
   N_TRIALS=1 \
   MAX_ITER=10 \
   PRUNE_CHECKPOINTS=5

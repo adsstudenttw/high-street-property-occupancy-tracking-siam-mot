@@ -38,10 +38,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-trials", default=40, type=int)
     parser.add_argument("--timeout-sec", default=360000, type=int)
-    parser.add_argument("--max-iter", default=3000, type=int)
+    parser.add_argument("--max-iter", default=1800, type=int)
     parser.add_argument(
         "--prune-checkpoints",
-        default="900,2100",
+        default="900",
         type=str,
         help="Comma-separated iteration checkpoints used for intermediate pruning reports",
     )

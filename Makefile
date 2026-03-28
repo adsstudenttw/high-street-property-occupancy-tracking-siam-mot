@@ -51,6 +51,7 @@ TRAIN_EXTRA_OPTS ?=
 
 TEST_SET ?= val
 EVAL_METRIC ?= both
+HPO_EVAL_METRIC ?= both
 MODEL_FILE ?=
 BASELINE_RUN_NAME ?= hspot_baseline_val
 FINE_TUNE_RUN_NAME ?= hspot_finetune
@@ -78,8 +79,8 @@ HPO_RUN_NAME_PREFIX ?= hspot_hota
 HPO_TRAIN_SPLIT ?= train
 HPO_VAL_SPLIT ?= val
 N_TRIALS ?= 40
-MAX_ITER ?= 3000
-PRUNE_CHECKPOINTS ?= 900,2100
+MAX_ITER ?= 1800
+PRUNE_CHECKPOINTS ?= 900
 TUNE_MLFLOW_FLAG ?= --mlflow-enabled
 TUNE_EXTRA_OPTS ?= --timeout-sec 360000
 
@@ -249,7 +250,7 @@ visualize-baseline: ensure-storage-dirs ## Render saved baseline prediction boxe
 tune: ensure-storage-dirs ## Run Optuna HPO (set BASE_MODEL_FILE).
 	@if [ -z "$(BASE_MODEL_FILE)" ]; then echo "BASE_MODEL_FILE is required, e.g. make tune BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth"; exit 1; fi
 	mkdir -p "$(HOST_HPO_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/tune_optuna.py --project-root . --config-file $(CONFIG_FILE) --base-model-file $(BASE_MODEL_FILE) --output-dir $(HPO_ARTIFACT_DIR) --study-name $(STUDY_NAME) --run-name-prefix $(HPO_RUN_NAME_PREFIX) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --train-split $(HPO_TRAIN_SPLIT) --val-split $(HPO_VAL_SPLIT) --eval-metric $(EVAL_METRIC) --n-trials $(N_TRIALS) --max-iter $(MAX_ITER) --prune-checkpoints $(PRUNE_CHECKPOINTS) --base-opts $(COMMON_DEVICE_OPTS) $(TUNE_MLFLOW_FLAG) $(TUNE_EXTRA_OPTS)"
+	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/tune_optuna.py --project-root . --config-file $(CONFIG_FILE) --base-model-file $(BASE_MODEL_FILE) --output-dir $(HPO_ARTIFACT_DIR) --study-name $(STUDY_NAME) --run-name-prefix $(HPO_RUN_NAME_PREFIX) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --train-split $(HPO_TRAIN_SPLIT) --val-split $(HPO_VAL_SPLIT) --eval-metric $(HPO_EVAL_METRIC) --n-trials $(N_TRIALS) --max-iter $(MAX_ITER) --prune-checkpoints $(PRUNE_CHECKPOINTS) --base-opts $(COMMON_DEVICE_OPTS) $(TUNE_MLFLOW_FLAG) $(TUNE_EXTRA_OPTS)"
 
 trackeval-add: ## Vendor TrackEval into third_party/TrackEval.
 	git subtree add --prefix third_party/TrackEval https://github.com/JonathonLuiten/TrackEval.git master --squash
