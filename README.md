@@ -194,7 +194,7 @@ Establish a pre-training baseline on `val` before any HSPOT fine-tuning:
 ~~~bash
 make baseline \
   TEST_SET=val \
-  EVAL_METRIC=hota
+  EVAL_METRIC=both
 ~~~
 
 Baseline outputs are written under `${HOST_STORAGE_ROOT}/artifacts/baseline` on the VM host.
@@ -221,13 +221,13 @@ HOTA duplicate handling:
 ~~~bash
 make baseline \
   TEST_SET=val \
-  EVAL_METRIC=hota
+  EVAL_METRIC=both
 ~~~
 4. Use strict mode when you want to diagnose whether the raw tracker output is directly TrackEval-valid:
 ~~~bash
 make baseline \
   TEST_SET=val \
-  EVAL_METRIC=hota \
+  EVAL_METRIC=both \
   TEST_EXTRA_OPTS="INFERENCE.HOTA_DUPLICATE_PRED_POLICY error INFERENCE.HOTA_DUPLICATE_GT_POLICY error"
 ~~~
 5. In normalized mode, duplicate predictions are collapsed only in the temporary MOT export used for TrackEval. The in-memory SIAMMOT results are not modified.
@@ -256,7 +256,7 @@ Validation evaluation:
 ~~~bash
 make test-finetune \
   TEST_SET=val \
-  EVAL_METRIC=hota
+  EVAL_METRIC=both
 ~~~
 
 In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
@@ -269,10 +269,10 @@ Run HPO:
 ~~~bash
 make tune \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
-  EVAL_METRIC=hota \
-  N_TRIALS=30 \
-  MAX_ITER=2000 \
-  PRUNE_CHECKPOINTS=600,1400 \
+  EVAL_METRIC=both \
+  N_TRIALS=40 \
+  MAX_ITER=3000 \
+  PRUNE_CHECKPOINTS=900,2100 \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
 ~~~
@@ -282,7 +282,8 @@ Behavior:
 2. Each trial evaluates on `val` with `test_net.py`.
 
 These defaults keep HPO aligned with the small HSPOT `val` split by training each trial on
-`train`, validating on `val`, and using a shorter schedule than the original generic settings.
+`train`, validating on `val`, and using combined CLEAR+HOTA evaluation with a moderate
+3000-iteration trial budget.
 
 Objective metric by `EVAL_METRIC`:
 1. `clear` -> `infer/mot/idf1`
@@ -299,7 +300,7 @@ Run the final test evaluation explicitly with the dedicated Make target:
 ~~~bash
 make test-best-hpo \
   BEST_HPO_TEST_SET=test \
-  EVAL_METRIC=hota
+  EVAL_METRIC=both
 ~~~
 
 By default this evaluates:
@@ -407,9 +408,9 @@ make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=fal
 
 ### 7. CPU Baseline, Train, and Eval Commands
 ~~~bash
-make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=hota
+make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
-make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=hota
+make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
 ~~~
 
 ### 8. Optional Tiny CPU HPO Smoke Run
@@ -418,6 +419,7 @@ make tune \
   GPU=none \
   DEVICE=cpu \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
+  EVAL_METRIC=both \
   N_TRIALS=1 \
   MAX_ITER=10 \
   PRUNE_CHECKPOINTS=5
