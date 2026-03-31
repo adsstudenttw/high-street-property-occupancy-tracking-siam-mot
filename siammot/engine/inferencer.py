@@ -89,6 +89,11 @@ def do_inference(
         output_boxlists = [o.resize([sample.width, sample.height]).convert('xywh')
                            for o in output_boxlists]
         output_boxlists = [o.to(torch.device("cpu")) for o in output_boxlists]
+        for _boxlist in output_boxlists:
+            if _boxlist.has_field('labels'):
+                _boxlist.extra_fields['labels'] = _boxlist.get_field('labels').to(dtype=torch.int64)
+            if _boxlist.has_field('ids'):
+                _boxlist.extra_fields['ids'] = _boxlist.get_field('ids').to(dtype=torch.int64)
         output_entities = boxlists_to_entities(output_boxlists, frame_id, timestamps)
         for entity in output_entities:
             sample_result.add_entity(entity)
