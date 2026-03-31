@@ -273,7 +273,7 @@ make tune \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
   HPO_EVAL_METRIC=both \
   N_TRIALS=40 \
-  MAX_ITER=1800 \
+  MAX_ITER=2000 \
   PRUNE_CHECKPOINTS=auto \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
