@@ -49,6 +49,7 @@ class MLflowLogger(object):
         self._manage_lifecycle = True
         self._mlflow = None
         self._run_id = None
+        self._logged_params: Dict[str, str] = {}
         self._artifact_path_prefix = str(artifact_path_prefix or "").strip().strip("/")
 
         if self._enabled:
@@ -109,6 +110,12 @@ class MLflowLogger(object):
             )
         self._active_run = True
         self._run_id = active_run.info.run_id
+        if self._run_id:
+            try:
+                existing_run = self._mlflow.get_run(self._run_id)
+                self._logged_params = dict(existing_run.data.params)
+            except Exception:
+                self._logged_params = {}
         self._logger.info("MLflow run started: %s", self._run_id)
 
     def end_run(self, status: str = "FINISHED"):
@@ -126,7 +133,20 @@ class MLflowLogger(object):
     def log_param(self, key: str, value: Any):
         if not self._can_log or not self._active_run:
             return
-        self._mlflow.log_param(key, str(value))
+        if value is None:
+            return
+        value_str = str(value)
+        existing_value = self._logged_params.get(key)
+        if existing_value is not None and existing_value != value_str:
+            self._logger.warning(
+                "Skipping MLflow param '%s': existing value '%s' differs from new value '%s'.",
+                key,
+                existing_value,
+                value_str,
+            )
+            return
+        self._mlflow.log_param(key, value_str)
+        self._logged_params[key] = value_str
 
     def log_params(self, params: Dict[str, Any]):
         if not self._can_log or not self._active_run:
@@ -135,9 +155,20 @@ class MLflowLogger(object):
         for key, value in params.items():
             if value is None:
                 continue
-            parsed[key] = value if _is_scalar(value) else str(value)
+            value_str = str(value) if _is_scalar(value) else str(value)
+            existing_value = self._logged_params.get(key)
+            if existing_value is not None and existing_value != value_str:
+                self._logger.warning(
+                    "Skipping MLflow param '%s': existing value '%s' differs from new value '%s'.",
+                    key,
+                    existing_value,
+                    value_str,
+                )
+                continue
+            parsed[key] = value_str
         if parsed:
             self._mlflow.log_params(parsed)
+            self._logged_params.update(parsed)
 
     def log_metric(self, key: str, value: float, step: Optional[int] = None):
         if not self._can_log or not self._active_run:
