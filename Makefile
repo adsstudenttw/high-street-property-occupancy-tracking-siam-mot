@@ -25,8 +25,6 @@ HOST_TRAIN_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/train
 HOST_INFER_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/infer
 HOST_HPO_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/hpo
 HOST_BASELINE_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/baseline
-HOST_FINE_TUNE_EVAL_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/fine_tune_eval
-HOST_BEST_HPO_EVAL_ARTIFACT_DIR ?= $(HOST_ARTIFACT_ROOT)/best_hpo_eval
 
 # Container-side mount points for the large data directories.
 CONTAINER_DATASETS_DIR ?= $(WORKDIR)/datasets
@@ -38,8 +36,6 @@ TRAIN_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/train
 INFER_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/infer
 HPO_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/hpo
 BASELINE_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/baseline
-FINE_TUNE_EVAL_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/fine_tune_eval
-BEST_HPO_EVAL_ARTIFACT_DIR ?= $(ARTIFACT_ROOT)/best_hpo_eval
 
 DATASET_PATH ?= $(CONTAINER_DATASETS_DIR)/hspot
 ANNO_NAME ?= anno.json
@@ -55,7 +51,6 @@ HPO_EVAL_METRIC ?= both
 MODEL_FILE ?=
 BASELINE_RUN_NAME ?= hspot_baseline_val
 FINE_TUNE_RUN_NAME ?= hspot_finetune
-FINE_TUNE_EVAL_RUN_NAME ?= hspot_finetune_test_eval
 BASELINE_MODEL_FILE ?= $(CONTAINER_WEIGHTS_DIR)/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 FINE_TUNE_MODEL_FILE ?= $(TRAIN_ARTIFACT_DIR)/DLA-34-FPN_box_EMM_MOT_HSPOT/model_final.pth
 TEST_EXTRA_OPTS ?=
@@ -71,16 +66,13 @@ VIS_ONLY_WITH_BOXES ?= false
 
 BASE_MODEL_FILE ?= $(CONTAINER_WEIGHTS_DIR)/DLA-34-FPN_EMM_crowdhuman_mot17.pth
 BEST_TRIAL_FILE ?= $(HPO_ARTIFACT_DIR)/best_trial.json
-BEST_HPO_MODEL_FILE ?=
-BEST_HPO_TEST_SET ?= test
-BEST_HPO_EVAL_RUN_NAME ?= hspot_hpo_test_eval
 STUDY_NAME ?= hspot_hpo
 HPO_RUN_NAME_PREFIX ?= hspot_hota
 HPO_TRAIN_SPLIT ?= train
 HPO_VAL_SPLIT ?= val
 N_TRIALS ?= 40
-MAX_ITER ?= 1800
-PRUNE_CHECKPOINTS ?= 900
+MAX_ITER ?= 2000
+PRUNE_CHECKPOINTS ?= auto
 TUNE_MLFLOW_FLAG ?= --mlflow-enabled
 TUNE_EXTRA_OPTS ?= --timeout-sec 360000
 
@@ -105,7 +97,7 @@ DOCKER_RUN_BASE := docker run --rm $(DOCKER_GPU_ARGS) --shm-size=$(SHM_SIZE) \
 	-w $(WORKDIR)
 
 .PHONY: help vm-bootstrap-cpu vm-bootstrap-docker verify-docker-gpu docker-build docker-shell \
-	verify-docker-cpu smoke-cpu smoke-mlflow ingest baseline train test-finetune test test-best-hpo tune trackeval-add trackeval-update \
+	verify-docker-cpu smoke-cpu smoke-mlflow ingest baseline train test tune trackeval-add trackeval-update \
 	ensure-storage-dirs print-storage-config verify-docker-root verify-containerd-root verify-storage-root visualize-baseline
 
 help: ## Show available targets.
@@ -229,18 +221,10 @@ train: ensure-storage-dirs ## Train/fine-tune with tools/train_net.py.
 	mkdir -p "$(HOST_TRAIN_ARTIFACT_DIR)"
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/train_net.py --config-file $(CONFIG_FILE) --train-dir $(TRAIN_ARTIFACT_DIR) --extra-mlflow-tags stage=fine_tune workflow=fine_tune_hspot dataset_key=$(DATASET_KEY) train_split=$(TRAIN_SPLIT) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) DATASETS.TRAIN \"('$(DATASET_KEY)',)\" DATASETS.TRAIN_SET $(TRAIN_SPLIT) MLFLOW.TRAIN_RUN_NAME $(FINE_TUNE_RUN_NAME) $(COMMON_DEVICE_OPTS) $(TRAIN_EXTRA_OPTS)"
 
-test-finetune: ensure-storage-dirs ## Evaluate the standard fine-tuned HSPOT model with explicit MLflow tagging.
-	mkdir -p "$(HOST_FINE_TUNE_EVAL_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(FINE_TUNE_EVAL_ARTIFACT_DIR) --model-file $(FINE_TUNE_MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --extra-mlflow-tags stage=fine_tune_eval workflow=fine_tune_eval_hspot dataset_key=$(DATASET_KEY) eval_split=$(TEST_SET) model_origin=fine_tune --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) INFERENCE.EVAL_METRIC $(EVAL_METRIC) MLFLOW.INFERENCE_RUN_NAME $(FINE_TUNE_EVAL_RUN_NAME) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
-
 test: ensure-storage-dirs ## Evaluate with tools/test_net.py (set MODEL_FILE and TEST_SET=val|test).
 	@if [ -z "$(MODEL_FILE)" ]; then echo "MODEL_FILE is required, e.g. make test MODEL_FILE=/workspace/artifacts/train/.../model_final.pth"; exit 1; fi
 	mkdir -p "$(HOST_INFER_ARTIFACT_DIR)"
 	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_net.py --config-file $(CONFIG_FILE) --output-dir $(INFER_ARTIFACT_DIR) --model-file $(MODEL_FILE) --test-dataset $(DATASET_KEY) --set $(TEST_SET) --opts DATASETS.ROOT_DIR $(CONTAINER_DATASETS_DIR) INFERENCE.EVAL_METRIC $(EVAL_METRIC) $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
-
-test-best-hpo: ensure-storage-dirs ## Evaluate the best trial checkpoint from HPO on the final split.
-	mkdir -p "$(HOST_BEST_HPO_EVAL_ARTIFACT_DIR)"
-	$(DOCKER_RUN_BASE) $(IMAGE) bash -lc "python tools/test_best_hpo.py --project-root . --config-file $(CONFIG_FILE) --best-trial-file $(BEST_TRIAL_FILE) --output-dir $(BEST_HPO_EVAL_ARTIFACT_DIR) --dataset-key $(DATASET_KEY) --datasets-root $(CONTAINER_DATASETS_DIR) --test-split $(BEST_HPO_TEST_SET) --eval-metric $(EVAL_METRIC) --run-name $(BEST_HPO_EVAL_RUN_NAME) $(if $(BEST_HPO_MODEL_FILE),--model-file $(BEST_HPO_MODEL_FILE),) --base-opts $(COMMON_DEVICE_OPTS) $(TEST_EXTRA_OPTS)"
 
 visualize-baseline: ensure-storage-dirs ## Render saved baseline prediction boxes on top of sequence frames.
 	@if [ -z "$(VIS_SEQUENCE_IDS)" ]; then echo "VIS_SEQUENCE_IDS is required, e.g. make visualize-baseline VIS_SEQUENCE_IDS='achter_clarenburg_ls choorstraat_2_ls'"; exit 1; fi

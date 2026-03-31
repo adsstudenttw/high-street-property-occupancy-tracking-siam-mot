@@ -109,6 +109,9 @@ cfg.INFERENCE.HOTA_DUPLICATE_PRED_POLICY = (
 # Solver
 cfg.SOLVER.CHECKPOINT_PERIOD = 5000
 cfg.SOLVER.VIDEO_CLIPS_PER_BATCH = 16
+cfg.SOLVER.VAL_EPOCH_PERIOD = 0
+cfg.SOLVER.VAL_TARGET_METRIC = "infer/mot/hota"
+cfg.SOLVER.VAL_EVAL_METRIC = "hota"
 
 # Input
 cfg.INPUT.MOTION_LIMIT = 0.1
@@ -121,6 +124,8 @@ cfg.DATASETS.ROOT_DIR = ""
 # Split used by the training dataloader for video datasets.
 # Keep "train" for normal training; set to "val" for validation-split fine-tuning.
 cfg.DATASETS.TRAIN_SET = "train"
+cfg.DATASETS.VAL = ()
+cfg.DATASETS.VAL_SET = "val"
 
 # MLflow
 cfg.MLFLOW = CN()

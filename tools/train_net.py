@@ -16,12 +16,13 @@ from maskrcnn_benchmark.utils.logger import setup_logger
 from maskrcnn_benchmark.utils.miscellaneous import mkdir, save_config
 
 from siammot.configs.defaults import cfg
-from siammot.data.build_train_data_loader import build_train_data_loader
+from siammot.data.build_train_data_loader import build_train_data_loader, summarize_train_dataset
 from siammot.modelling.rcnn import build_siammot
 from siammot.engine.trainer import do_train
 from siammot.utils.get_model_name import get_model_name
 from siammot.engine.tensorboard_writer import TensorboardWriter
 from siammot.engine.mlflow_logger import MLflowLogger
+from siammot.engine.validation import ValidationRunner
 from yacs.config import CfgNode
 
 
@@ -105,7 +106,7 @@ def train(
     distributed: bool,
     logger: logging.Logger,
     mlflow_logger: Optional[MLflowLogger] = None,
-) -> torch.nn.Module:
+) -> Tuple[torch.nn.Module, Dict[str, Any], Dict[str, Any]]:
 
     # build model
     model = build_siammot(cfg)
@@ -140,12 +141,66 @@ def train(
     )
     extra_checkpoint_data = checkpointer.load(cfg.MODEL.WEIGHT) or {}
     arguments.update(extra_checkpoint_data)
+    arguments.setdefault("validation_history", [])
+    arguments.setdefault("best_validation_metric", None)
+    arguments.setdefault("best_validation_iteration", 0)
+    arguments.setdefault("best_validation_epoch", 0)
+    arguments.setdefault("best_validation_checkpoint", "")
+    arguments.setdefault("latest_validation", {})
+    arguments.setdefault("last_validated_iteration", 0)
 
     data_loader = build_train_data_loader(
         cfg,
         is_distributed=distributed,
         start_iter=arguments["iteration"],
     )
+    train_data_stats = summarize_train_dataset(cfg, dataset=data_loader.dataset)
+    logger.info(
+        "Train dataset stats: split=%s clips=%d batch=%d steps_per_epoch=%d effective_epochs=%.4f",
+        train_data_stats["train_split"],
+        train_data_stats["train_dataset_num_clips"],
+        train_data_stats["video_clips_per_batch"],
+        train_data_stats["steps_per_epoch"],
+        train_data_stats["effective_num_epochs"],
+    )
+    if mlflow_logger is not None and mlflow_logger.can_log:
+        mlflow_logger.log_params(train_data_stats)
+
+    validation_epoch_period = int(getattr(cfg.SOLVER, "VAL_EPOCH_PERIOD", 0))
+    validation_target_metric = str(getattr(cfg.SOLVER, "VAL_TARGET_METRIC", "infer/mot/hota")).strip()
+    validation_runner = None
+    steps_per_epoch = int(train_data_stats["steps_per_epoch"])
+    if validation_epoch_period > 0:
+        if steps_per_epoch < 1:
+            raise ValueError(
+                "Epoch validation is enabled, but steps_per_epoch resolved to {}.".format(
+                    steps_per_epoch
+                )
+            )
+        validation_dir = os.path.join(train_dir, "validation")
+        mkdir(validation_dir)
+        runner = ValidationRunner(cfg, validation_dir, logger=logger)
+        validation_model = model.module if hasattr(model, "module") else model
+        validation_runner = lambda iteration, epoch: runner(validation_model, iteration, epoch)
+        logger.info(
+            "Epoch validation enabled: every %d epoch(s) on %s/%s using %s",
+            validation_epoch_period,
+            runner.dataset_key,
+            runner.split,
+            runner.eval_metric,
+        )
+        if mlflow_logger is not None and mlflow_logger.can_log:
+            mlflow_logger.log_params(
+                {
+                    "val.dataset_key": runner.dataset_key,
+                    "val.split": runner.split,
+                    "val.epoch_period": validation_epoch_period,
+                    "val.eval_metric": runner.eval_metric,
+                    "val.target_metric": validation_target_metric,
+                }
+            )
+    else:
+        logger.info("Epoch validation disabled (SOLVER.VAL_EPOCH_PERIOD=%d)", validation_epoch_period)
 
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
 
@@ -165,9 +220,23 @@ def train(
         mlflow_logger=mlflow_logger,
         mlflow_log_every_n_steps=cfg.MLFLOW.LOG_EVERY_N_STEPS,
         mlflow_log_checkpoints=cfg.MLFLOW.LOG_MODEL_CHECKPOINTS,
+        validation_runner=validation_runner,
+        steps_per_epoch=steps_per_epoch,
+        validation_epoch_period=validation_epoch_period,
+        validation_target_metric=validation_target_metric,
     )
 
-    return model
+    validation_state = {
+        "history": arguments.get("validation_history", []),
+        "best_metric_name": validation_target_metric,
+        "best_metric_value": arguments.get("best_validation_metric"),
+        "best_iteration": arguments.get("best_validation_iteration"),
+        "best_epoch": arguments.get("best_validation_epoch"),
+        "best_checkpoint": arguments.get("best_validation_checkpoint"),
+        "latest": arguments.get("latest_validation", {}),
+    }
+
+    return model, train_data_stats, validation_state
 
 
 def setup_env_and_logger(
@@ -272,7 +341,7 @@ def main() -> None:
                 f.write(mlflow_logger.run_id + "\n")
             mlflow_logger.log_artifact(run_id_file, artifact_path="metadata")
 
-        train(
+        _model, train_data_stats, validation_state = train(
             cfg,
             train_dir,
             args.local_rank,
@@ -281,11 +350,13 @@ def main() -> None:
             mlflow_logger=mlflow_logger,
         )
 
-        run_info: Dict[str, Optional[str]] = {
+        run_info: Dict[str, Any] = {
             "model_name": model_name,
             "train_dir": train_dir,
             "final_checkpoint": os.path.join(train_dir, "model_final.pth"),
             "mlflow_run_id": mlflow_logger.run_id,
+            "train_data_stats": train_data_stats,
+            "validation": validation_state,
         }
         run_info_path = os.path.join(train_dir, "run_info.json")
         with open(run_info_path, "w") as f:

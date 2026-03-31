@@ -1,4 +1,6 @@
+import math
 import torch.utils.data
+from typing import Any, Dict, Optional, Tuple
 
 from maskrcnn_benchmark.utils.comm import get_world_size
 from maskrcnn_benchmark.data.build import make_data_sampler, make_batch_data_sampler
@@ -59,17 +61,54 @@ def build_dataset(cfg):
     return dataset
 
 
-def build_train_data_loader(cfg, is_distributed=False, start_iter=0):
-
-    num_gpus = get_world_size()
-
-    video_clips_per_batch = cfg.SOLVER.VIDEO_CLIPS_PER_BATCH
+def _resolve_train_batch_sizes(cfg, num_gpus: int) -> Tuple[int, int]:
+    video_clips_per_batch = int(cfg.SOLVER.VIDEO_CLIPS_PER_BATCH)
     assert (
         video_clips_per_batch % num_gpus == 0
     ), "SOLVER.VIDEO_CLIPS_PER_BATCH ({}) must be divisible by the number of GPUs ({}) used.".format(
         video_clips_per_batch, num_gpus)
+    return video_clips_per_batch, video_clips_per_batch // num_gpus
 
-    video_clips_per_gpu = video_clips_per_batch // num_gpus
+
+def summarize_train_dataset(
+    cfg,
+    dataset: Optional[Any] = None,
+) -> Dict[str, Any]:
+    num_gpus = get_world_size()
+    video_clips_per_batch, video_clips_per_gpu = _resolve_train_batch_sizes(cfg, num_gpus)
+
+    if dataset is None:
+        dataset = build_dataset(cfg)
+
+    train_dataset_num_clips = int(len(dataset))
+    steps_per_epoch = (
+        int(math.ceil(float(train_dataset_num_clips) / float(video_clips_per_batch)))
+        if train_dataset_num_clips > 0
+        else 0
+    )
+    frames_per_clip = int(cfg.VIDEO.RANDOM_FRAMES_PER_CLIP)
+    return {
+        "train_split": str(getattr(cfg.DATASETS, "TRAIN_SET", "train")),
+        "num_gpus": int(num_gpus),
+        "train_dataset_num_clips": train_dataset_num_clips,
+        "video_clips_per_batch": int(video_clips_per_batch),
+        "video_clips_per_gpu": int(video_clips_per_gpu),
+        "frames_per_clip": frames_per_clip,
+        "frames_per_iteration": int(video_clips_per_batch * frames_per_clip),
+        "steps_per_epoch": steps_per_epoch,
+        "max_iter": int(cfg.SOLVER.MAX_ITER),
+        "effective_num_epochs": (
+            float(cfg.SOLVER.MAX_ITER) / float(steps_per_epoch)
+            if steps_per_epoch > 0
+            else 0.0
+        ),
+    }
+
+
+def build_train_data_loader(cfg, is_distributed=False, start_iter=0):
+
+    num_gpus = get_world_size()
+    _, video_clips_per_gpu = _resolve_train_batch_sizes(cfg, num_gpus)
 
     dataset = build_dataset(cfg)
     num_iters = cfg.SOLVER.MAX_ITER

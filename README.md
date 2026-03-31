@@ -211,27 +211,6 @@ This writes annotated frames to:
 The visualizer automatically finds prediction JSON files under `${HOST_STORAGE_ROOT}/artifacts/baseline/<model_name>/`.
 Prediction boxes are drawn in orange and labeled with `P ...`; ground-truth boxes are drawn in green and labeled with `GT ...`.
 
-HOTA duplicate handling:
-1. By default, HOTA normalizes duplicate GT and prediction `(frame, track_id)` pairs with `keep_highest_conf`. If confidences tie, the first occurrence is kept. This lets baseline, fine-tuning, HPO, and final evaluation complete without extra flags.
-2. This is controlled by:
-   `INFERENCE.HOTA_DUPLICATE_GT_POLICY`
-   `INFERENCE.HOTA_DUPLICATE_PRED_POLICY`
-   Supported values: `error`, `keep_first`, `keep_highest_conf`
-3. The default baseline command therefore already runs with `keep_highest_conf` normalization:
-~~~bash
-make baseline \
-  TEST_SET=val \
-  EVAL_METRIC=both
-~~~
-4. Use strict mode when you want to diagnose whether the raw tracker output is directly TrackEval-valid:
-~~~bash
-make baseline \
-  TEST_SET=val \
-  EVAL_METRIC=both \
-  TEST_EXTRA_OPTS="INFERENCE.HOTA_DUPLICATE_PRED_POLICY error INFERENCE.HOTA_DUPLICATE_GT_POLICY error"
-~~~
-5. In normalized mode, duplicate predictions are collapsed only in the temporary MOT export used for TrackEval. The in-memory SIAMMOT results are not modified.
-
 ### 10. Fine-tune
 Train on `train` split:
 ~~~bash
@@ -239,29 +218,11 @@ make train \
   TRAIN_SPLIT=train
 ~~~
 
-In MLflow these runs are tagged with `stage=fine_tune`.
+During fine-tuning, validation now runs automatically at each effective epoch inside
+`train_net.py`. With the HSPOT config, HOTA is logged to MLflow during training together
+with the other validation metrics, and the best validation checkpoint is tracked automatically.
 
-### 11. Test
-Find your checkpoint:
-~~~bash
-find "${HOST_STORAGE_ROOT}/artifacts/train" -name model_final.pth
-~~~
-
-Compare the fine-tuned checkpoint against the pre-training baseline in:
-~~~bash
-find "${HOST_STORAGE_ROOT}/artifacts/baseline" -name inference_metrics.json
-~~~
-
-Validation evaluation:
-~~~bash
-make test-finetune \
-  TEST_SET=val \
-  EVAL_METRIC=both
-~~~
-
-In MLflow these validation runs are tagged with `stage=fine_tune_eval`.
-
-### 12. Hyperparameter Tuning (Optuna, 1 GPU)
+### 11. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
 SiamMOT checkpoint `/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`.
 
@@ -271,19 +232,21 @@ make tune \
   BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
   HPO_EVAL_METRIC=both \
   N_TRIALS=40 \
-  MAX_ITER=1800 \
-  PRUNE_CHECKPOINTS=900 \
+  MAX_ITER=2000 \
+  PRUNE_CHECKPOINTS=auto \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
 ~~~
 
 Behavior:
 1. Each trial fine-tunes with `train_net.py`.
-2. Each trial evaluates on `val` with `test_net.py`.
+2. Each trial validates on `val` at each effective epoch inside training.
+3. After HPO completes, the best checkpoint is evaluated automatically on the `test` split.
 
 These defaults keep HPO aligned with the small HSPOT `val` split by training each trial on
-`train`, validating on `val`, computing both CLEAR and HOTA metrics, and keeping each trial
-shorter with a lightweight 1800-iteration budget plus one pruning stage at iteration 900.
+`train`, validating on `val`, computing both CLEAR and HOTA metrics every effective epoch,
+pruning on epoch-aligned stage boundaries, and then running a final nested MLflow evaluation
+for the best checkpoint on `test`.
 
 Objective metric by HPO evaluation mode:
 1. `clear` -> `infer/mot/idf1`
@@ -298,7 +261,6 @@ HPO outputs:
 To restart HPO from scratch, delete:
 ~~~bash
 rm -rf /data/siammot_storage/siammot/artifacts/hpo
-rm -rf /data/siammot_storage/siammot/artifacts/best_hpo_eval
 ~~~
 
 This resets the Optuna study database and all saved HPO trial artifacts. If you also want a
@@ -312,7 +274,7 @@ make tune \
   HPO_EVAL_METRIC=both \
   N_TRIALS=40 \
   MAX_ITER=1800 \
-  PRUNE_CHECKPOINTS=900 \
+  PRUNE_CHECKPOINTS=auto \
   HPO_TRAIN_SPLIT=train \
   HPO_VAL_SPLIT=val
 ~~~
@@ -325,145 +287,4 @@ Ctrl-b d
 Reconnect later:
 ~~~bash
 tmux attach -t hpo
-~~~
-
-### 13. Final Evaluation Of The Best HPO Model
-Run the final test evaluation explicitly with the dedicated Make target:
-~~~bash
-make test-best-hpo \
-  BEST_HPO_TEST_SET=test \
-  EVAL_METRIC=both
-~~~
-
-By default this evaluates:
-1. the `user_attrs.final_checkpoint` from `${HOST_STORAGE_ROOT}/artifacts/hpo/best_trial.json`
-2. on the HSPOT `test` split
-3. with explicit MLflow tags including `stage=final_eval_best_hpo`
-
-Outputs are written under `${HOST_STORAGE_ROOT}/artifacts/best_hpo_eval`.
-Optionally set `BEST_HPO_MODEL_FILE=<checkpoint>` to override the checkpoint from `best_trial.json`.
-
-### CPU-Only Setup (Separate Path)
-Use this path for CPU-only validation/debug runs. It is much slower than GPU training.
-
-### 0. Prerequisites on the VM
-1. Ubuntu 22.04 VM (no GPU required).
-2. This repository cloned on the VM.
-3. Your MLflow tracking server already running on a separate VM.
-
-### 1. Install Docker (CPU-Only)
-~~~bash
-make vm-bootstrap-cpu
-~~~
-
-Then log out/in (or run `newgrp docker`) so your user can run Docker without `sudo`.
-
-### 2. Move Docker And containerd Storage To The SURF Volume (Recommended For 20GB Root Disk)
-Create Docker and containerd storage on the mounted SURF volume:
-~~~bash
-sudo mkdir -p /data/siammot_storage/docker
-sudo mkdir -p /data/siammot_storage/containerd
-~~~
-
-Back up Docker daemon config (if present):
-~~~bash
-sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak.$(date +%F-%H%M%S) 2>/dev/null || true
-~~~
-
-Edit `/etc/docker/daemon.json` so it contains:
-~~~json
-{
-  "data-root": "/data/siammot_storage/docker"
-}
-~~~
-
-Create `/etc/containerd/config.toml` so containerd persistent storage is also moved off the root disk:
-~~~bash
-sudo mkdir -p /etc/containerd
-sudo tee /etc/containerd/config.toml > /dev/null <<'EOF'
-version = 2
-root = "/data/siammot_storage/containerd"
-state = "/run/containerd"
-EOF
-~~~
-
-Restart containerd and Docker, then verify:
-~~~bash
-sudo systemctl restart containerd
-sudo systemctl restart docker
-make verify-storage-root
-~~~
-
-Expected:
-1. `DockerRootDir=/data/siammot_storage/docker`
-2. `root = "/data/siammot_storage/containerd"`
-3. `state = "/run/containerd"`
-
-You can also run `make verify-docker-root` or `make verify-containerd-root` individually.
-
-If you previously used the default `/var/lib/containerd`, you can move the old data aside after the restart:
-~~~bash
-sudo systemctl stop docker
-sudo systemctl stop containerd
-sudo mv /var/lib/containerd /var/lib/containerd.bak.$(date +%F-%H%M%S)
-sudo mkdir -p /var/lib/containerd
-sudo systemctl start containerd
-sudo systemctl start docker
-~~~
-
-### 3. Build the Project Image
-~~~bash
-make docker-build
-~~~
-
-### 4. Configure SURF Volume Storage
-~~~bash
-make ensure-storage-dirs
-make print-storage-config
-~~~
-
-### 5. Verify CPU Container Runtime
-~~~bash
-make verify-docker-cpu
-make smoke-cpu
-make smoke-mlflow
-~~~
-
-### 6. Prepare Dataset and Weights
-1. Put dataset under `${HOST_STORAGE_ROOT}/datasets/hspot/raw_data/...`
-2. Put pretrained checkpoint at `${HOST_STORAGE_ROOT}/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth`
-3. Ingest dataset:
-
-~~~bash
-make ingest DATASET_PATH=/workspace/datasets/hspot ANNO_NAME=anno.json MOT17=false DET_OPTIONS=""
-~~~
-
-### 7. CPU Baseline, Train, and Eval Commands
-~~~bash
-make baseline GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
-make train GPU=none DEVICE=cpu TRAIN_SPLIT=train
-make test-finetune GPU=none DEVICE=cpu TEST_SET=val EVAL_METRIC=both
-~~~
-
-### 8. Optional Tiny CPU HPO Smoke Run
-~~~bash
-make tune \
-  GPU=none \
-  DEVICE=cpu \
-  BASE_MODEL_FILE=/workspace/weights/DLA-34-FPN_EMM_crowdhuman_mot17.pth \
-  HPO_EVAL_METRIC=both \
-  N_TRIALS=1 \
-  MAX_ITER=10 \
-  PRUNE_CHECKPOINTS=5
-~~~
-
-## Useful Commands
-Show available Make targets:
-~~~bash
-make help
-~~~
-
-Open an interactive shell in the container:
-~~~bash
-make docker-shell
 ~~~

@@ -47,10 +47,15 @@ SOLVER:
   STEPS: (1350, 2100)
   MAX_ITER: 4500
   VIDEO_CLIPS_PER_BATCH: 2 #reduce to 1 if memory limits are reached
+  VAL_EPOCH_PERIOD: 1
+  VAL_EVAL_METRIC: "hota"
+  VAL_TARGET_METRIC: "infer/mot/hota"
 
 DATASETS:
   ROOT_DIR: "datasets"
   TRAIN: ("MOT_HSPOT",)
+  VAL: ("MOT_HSPOT",)
+  VAL_SET: "val"
 
 DATALOADER:
   SIZE_DIVISIBILITY: 32
