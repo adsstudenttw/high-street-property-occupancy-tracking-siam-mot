@@ -692,6 +692,10 @@ def trial_objective(context: TuningContext, trial: optuna.Trial) -> float:
                         trial_mlflow_logger.run_id,
                         "--mlflow-artifact-subdir",
                         stage_artifact_subdir(stage_name, "train"),
+                        "--mlflow-stage-name",
+                        stage_name,
+                        "--mlflow-stage-iter",
+                        str(stage_iter),
                     ]
                 )
             train_cmd.extend(

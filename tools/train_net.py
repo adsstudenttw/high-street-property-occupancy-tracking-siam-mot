@@ -2,6 +2,7 @@ import argparse
 import logging
 import json
 import os
+import re
 import traceback
 from typing import Any, Dict, Optional, Tuple
 
@@ -74,6 +75,18 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument(
+    "--mlflow-stage-name",
+    default="",
+    help="optional stage name used for stage-scoped MLflow logging when attaching to an existing run",
+    type=str,
+)
+parser.add_argument(
+    "--mlflow-stage-iter",
+    default=0,
+    help="optional stage iteration used as the MLflow metric step when attaching to an existing run",
+    type=int,
+)
+parser.add_argument(
     "--opts",
     nargs=argparse.REMAINDER,
     default=[],
@@ -99,6 +112,78 @@ def parse_mlflow_tags(raw_tags: Any) -> Dict[str, str]:
     return parsed
 
 
+def _resolve_mlflow_stage_scope(stage_name: str, stage_iter: int, fallback_iter: int) -> Tuple[str, int]:
+    resolved_iter = int(stage_iter) if int(stage_iter) > 0 else int(fallback_iter)
+    raw_stage_name = str(stage_name or "").strip()
+    if not raw_stage_name:
+        raw_stage_name = "iter_{:07d}".format(resolved_iter)
+    stage_slug = re.sub(r"[^0-9A-Za-z_.-]+", "_", raw_stage_name).strip("._-")
+    if not stage_slug:
+        stage_slug = "iter_{:07d}".format(resolved_iter)
+    return stage_slug, resolved_iter
+
+
+def log_train_data_stats_to_mlflow(
+    mlflow_logger: Optional[MLflowLogger],
+    logger: logging.Logger,
+    train_data_stats: Dict[str, Any],
+    using_external_mlflow_run: bool = False,
+    mlflow_stage_name: str = "",
+    mlflow_stage_iter: int = 0,
+) -> None:
+    if mlflow_logger is None or not mlflow_logger.can_log:
+        return
+
+    if not using_external_mlflow_run:
+        mlflow_logger.log_params(train_data_stats)
+        return
+
+    top_level_params = dict(train_data_stats)
+    top_level_params.pop("max_iter", None)
+    top_level_params.pop("effective_num_epochs", None)
+    mlflow_logger.log_params(top_level_params)
+
+    stage_key, stage_step = _resolve_mlflow_stage_scope(
+        mlflow_stage_name,
+        mlflow_stage_iter,
+        int(train_data_stats.get("max_iter", 0) or 0),
+    )
+    logger.info(
+        "MLflow attached run: stage-varying train stats will be logged under 'stage.%s.*' at step=%d",
+        stage_key,
+        stage_step,
+    )
+    mlflow_logger.log_params(
+        {
+            "stage.{}.max_iter".format(stage_key): train_data_stats.get("max_iter"),
+            "stage.{}.effective_num_epochs".format(stage_key): train_data_stats.get(
+                "effective_num_epochs"
+            ),
+            "stage.{}.steps_per_epoch".format(stage_key): train_data_stats.get(
+                "steps_per_epoch"
+            ),
+        }
+    )
+    mlflow_logger.log_metrics(
+        {
+            "train/stage/max_iter": float(train_data_stats.get("max_iter", 0) or 0),
+            "train/stage/effective_num_epochs": float(
+                train_data_stats.get("effective_num_epochs", 0.0) or 0.0
+            ),
+            "train/stage/steps_per_epoch": float(
+                train_data_stats.get("steps_per_epoch", 0) or 0
+            ),
+        },
+        step=stage_step,
+    )
+    mlflow_logger.set_tags(
+        {
+            "latest_stage_name": stage_key,
+            "latest_stage_iter": str(stage_step),
+        }
+    )
+
+
 def train(
     cfg: CfgNode,
     train_dir: str,
@@ -106,6 +191,9 @@ def train(
     distributed: bool,
     logger: logging.Logger,
     mlflow_logger: Optional[MLflowLogger] = None,
+    using_external_mlflow_run: bool = False,
+    mlflow_stage_name: str = "",
+    mlflow_stage_iter: int = 0,
 ) -> Tuple[torch.nn.Module, Dict[str, Any], Dict[str, Any]]:
 
     # build model
@@ -163,8 +251,14 @@ def train(
         train_data_stats["steps_per_epoch"],
         train_data_stats["effective_num_epochs"],
     )
-    if mlflow_logger is not None and mlflow_logger.can_log:
-        mlflow_logger.log_params(train_data_stats)
+    log_train_data_stats_to_mlflow(
+        mlflow_logger,
+        logger,
+        train_data_stats,
+        using_external_mlflow_run=using_external_mlflow_run,
+        mlflow_stage_name=mlflow_stage_name,
+        mlflow_stage_iter=mlflow_stage_iter,
+    )
 
     validation_epoch_period = int(getattr(cfg.SOLVER, "VAL_EPOCH_PERIOD", 0))
     validation_target_metric = str(getattr(cfg.SOLVER, "VAL_TARGET_METRIC", "infer/mot/hota")).strip()
@@ -348,6 +442,9 @@ def main() -> None:
             args.distributed,
             logger,
             mlflow_logger=mlflow_logger,
+            using_external_mlflow_run=using_external_mlflow_run,
+            mlflow_stage_name=args.mlflow_stage_name,
+            mlflow_stage_iter=args.mlflow_stage_iter,
         )
 
         run_info: Dict[str, Any] = {
