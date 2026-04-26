@@ -216,8 +216,8 @@ For any other evaluation output directory, use the generic target. If you omit
 `VIS_SEQUENCE_IDS`, you must supply `VIS_SPLIT` so the visualizer knows which split to enumerate:
 ~~~bash
 make visualize \
-  VIS_PREDICTIONS_DIR=/workspace/artifacts/infer \
-  VIS_OUTPUT_DIR=/workspace/artifacts/infer/visualizations \
+  VIS_PREDICTIONS_DIR=/workspace/artifacts/hpo/best_hpo_eval \
+  VIS_OUTPUT_DIR=/workspace/artifacts/hpo/best_hpo_eval/visualizations \
   VIS_SPLIT=test
 ~~~
 
@@ -245,13 +245,13 @@ run, point `FINE_TUNE_MODEL_FILE` at that run's `model_final.pth`. If you want a
 validation pass, use `make visualize` and point `VIS_PREDICTIONS_DIR` at that exact
 `validation/epoch_<epoch>_iter_<iter>` directory.
 
-If you evaluate the fine-tuned checkpoint with `make test`, you can instead use the dedicated
-final-evaluation alias:
+To visualize the final evaluation of the best HPO trial on `test`, use:
 ~~~bash
 make visualize-final-eval
 ~~~
 
-By default, `make visualize-final-eval` renders all sequences from the `test` split.
+By default, `make visualize-final-eval` reads predictions from
+`${HOST_STORAGE_ROOT}/artifacts/hpo/best_hpo_eval` and renders all sequences from the `test` split.
 
 ### 11. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
