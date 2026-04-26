@@ -136,6 +136,23 @@ def list_sequence_ids_for_split(dataset_root: str, split: str) -> List[str]:
     return sequence_ids
 
 
+def filter_sequence_ids_with_predictions(
+    sequence_ids: Sequence[str], predictions_json: str, predictions_dir: str
+) -> Tuple[List[str], List[str]]:
+    matched = []
+    missing = []
+    for sequence_id in sequence_ids:
+        try:
+            resolved = resolve_predictions_json(sequence_id, predictions_json, predictions_dir)
+        except FileExistsError:
+            raise
+        if os.path.isfile(resolved):
+            matched.append(sequence_id)
+        else:
+            missing.append(sequence_id)
+    return matched, missing
+
+
 def list_frame_paths(img_dir: str) -> List[str]:
     frame_paths = [
         os.path.join(img_dir, file_name)
@@ -276,6 +293,23 @@ def main() -> None:
     sequence_ids = list(args.sequence_id)
     if not sequence_ids:
         sequence_ids = list_sequence_ids_for_split(args.dataset_root, args.split)
+        sequence_ids, missing_sequence_ids = filter_sequence_ids_with_predictions(
+            sequence_ids, args.predictions_json, args.predictions_dir
+        )
+        if missing_sequence_ids:
+            print(
+                "Skipping {} sequence(s) from split '{}' with no saved predictions: {}".format(
+                    len(missing_sequence_ids),
+                    args.split,
+                    ", ".join(missing_sequence_ids),
+                )
+            )
+        if not sequence_ids:
+            raise FileNotFoundError(
+                "No prediction JSON files were found under '{}' for split '{}'.".format(
+                    args.predictions_dir, args.split
+                )
+            )
 
     output_root = args.output_dir or os.path.join(args.predictions_dir, "visualizations")
     total_rendered = 0
