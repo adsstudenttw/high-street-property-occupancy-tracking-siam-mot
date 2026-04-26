@@ -202,14 +202,24 @@ In MLflow these runs are tagged with `stage=baseline_eval`.
 
 Render saved prediction boxes on top of the original sequence frames from inside the project container:
 ~~~bash
-make visualize-baseline \
-  VIS_SEQUENCE_IDS="achter_clarenburg_ls choorstraat_2_ls vredenburg_ls"
+make visualize-baseline
 ~~~
 
 This writes annotated frames to:
 `"${HOST_STORAGE_ROOT}/artifacts/baseline/visualizations/<sequence-id>"`
 The visualizer automatically finds prediction JSON files under `${HOST_STORAGE_ROOT}/artifacts/baseline/<model_name>/`.
 Prediction boxes are drawn in orange and labeled with `P ...`; ground-truth boxes are drawn in green and labeled with `GT ...`.
+By default, `make visualize-baseline` renders all sequences from the `val` split. You can still
+restrict the run with `VIS_SEQUENCE_IDS="..."` if needed.
+
+For any other evaluation output directory, use the generic target. If you omit
+`VIS_SEQUENCE_IDS`, you must supply `VIS_SPLIT` so the visualizer knows which split to enumerate:
+~~~bash
+make visualize \
+  VIS_PREDICTIONS_DIR=/workspace/artifacts/infer \
+  VIS_OUTPUT_DIR=/workspace/artifacts/infer/visualizations \
+  VIS_SPLIT=test
+~~~
 
 ### 10. Fine-tune
 Train on `train` split:
@@ -221,6 +231,27 @@ make train \
 During fine-tuning, validation now runs automatically at each effective epoch inside
 `train_net.py`. With the HSPOT config, HOTA is logged to MLflow during training together
 with the other validation metrics, and the best validation checkpoint is tracked automatically.
+Each validation pass also writes per-sequence prediction JSON files under:
+`${HOST_STORAGE_ROOT}/artifacts/train/<model_name>/validation/epoch_<epoch>_iter_<iter>/`
+
+To visualize the best fine-tuning validation pass, use:
+~~~bash
+make visualize-finetuning
+~~~
+
+By default, `make visualize-finetuning` resolves the best validation epoch/iteration from the
+fine-tuning run metadata and renders all sequences from the `val` split. If you want a specific
+run, point `FINE_TUNE_MODEL_FILE` at that run's `model_final.pth`. If you want a non-best
+validation pass, use `make visualize` and point `VIS_PREDICTIONS_DIR` at that exact
+`validation/epoch_<epoch>_iter_<iter>` directory.
+
+If you evaluate the fine-tuned checkpoint with `make test`, you can instead use the dedicated
+final-evaluation alias:
+~~~bash
+make visualize-final-eval
+~~~
+
+By default, `make visualize-final-eval` renders all sequences from the `test` split.
 
 ### 11. Hyperparameter Tuning (Optuna, 1 GPU)
 `make tune` starts each HPO trial from `BASE_MODEL_FILE`, which defaults to the pre-trained
@@ -257,6 +288,15 @@ HPO outputs:
 1. `${HOST_STORAGE_ROOT}/artifacts/hpo/best_trial.json`
 2. `${HOST_STORAGE_ROOT}/artifacts/hpo/study_trials.json`
 3. `${HOST_STORAGE_ROOT}/artifacts/hpo/hpo_summary.json`
+
+The best HPO trial's best validation pass can be visualized directly with:
+~~~bash
+make visualize-hpo-best
+~~~
+
+By default, `make visualize-hpo-best` resolves the best trial from `best_trial.json`, maps its
+best checkpoint back to the corresponding validation output directory, and renders all sequences
+from the `val` split.
 
 To restart HPO from scratch, delete:
 ~~~bash

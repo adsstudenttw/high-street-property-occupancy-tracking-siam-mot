@@ -21,8 +21,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sequence-id",
-        required=True,
         nargs="+",
+        default=[],
         help="One or more sequence/sample ids, e.g. achter_clarenburg_ls choorstraat_2_ls",
     )
     parser.add_argument(
@@ -110,6 +110,30 @@ def resolve_split_and_img_dir(dataset_root: str, sequence_id: str, split: str) -
     raise FileNotFoundError(
         "Could not find img1 for sequence '{}' under {}.".format(sequence_id, dataset_root)
     )
+
+
+def list_sequence_ids_for_split(dataset_root: str, split: str) -> List[str]:
+    if not split:
+        raise ValueError(
+            "--split is required when --sequence-id is omitted so the visualizer knows which split to render."
+        )
+
+    split_root = os.path.join(dataset_root, "raw_data", split)
+    if not os.path.isdir(split_root):
+        raise FileNotFoundError(
+            "Could not find split directory '{}' under {}.".format(split, dataset_root)
+        )
+
+    sequence_ids = []
+    for entry in sorted(os.listdir(split_root)):
+        img_dir = os.path.join(split_root, entry, "img1")
+        if os.path.isdir(img_dir):
+            sequence_ids.append(entry)
+    if not sequence_ids:
+        raise FileNotFoundError(
+            "No sequence directories with img1 were found under '{}'.".format(split_root)
+        )
+    return sequence_ids
 
 
 def list_frame_paths(img_dir: str) -> List[str]:
@@ -246,10 +270,16 @@ def main() -> None:
     args = parse_args()
     if args.predictions_json and len(args.sequence_id) > 1:
         raise ValueError("--predictions-json can only be used with a single --sequence-id.")
+    if args.predictions_json and not args.sequence_id:
+        raise ValueError("--predictions-json requires exactly one --sequence-id.")
+
+    sequence_ids = list(args.sequence_id)
+    if not sequence_ids:
+        sequence_ids = list_sequence_ids_for_split(args.dataset_root, args.split)
 
     output_root = args.output_dir or os.path.join(args.predictions_dir, "visualizations")
     total_rendered = 0
-    for sequence_id in args.sequence_id:
+    for sequence_id in sequence_ids:
         predictions_json = resolve_predictions_json(
             sequence_id, args.predictions_json, args.predictions_dir
         )
